@@ -1,0 +1,916 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"></head><body><title>페이퍼시어터 공방</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: cutting-mat workbench on the left (editor / 3D preview), tool rail on the right that stacks under it on phones */
+:root{
+  --bg:#eef1ed; --panel:#ffffff; --ink:#1d2722; --muted:#5f6d66; --line:#d5dcd6;
+  --mat:#2f6b55; --mat-grid:rgba(255,255,255,.10); --mat-grid2:rgba(255,255,255,.22);
+  --accent:#2f6b55; --accent-ink:#ffffff; --fg-hint:#18b07a; --bg-hint:#e0463c; --cut:#e6004e;
+  --soft:#f4f6f3; --warn:#9a5b00;
+  --f-display:"Do Hyeon","IBM Plex Sans KR",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#121815; --panel:#1b231f; --ink:#e7ece8; --muted:#9aa8a0; --line:#2c3732;
+  --mat:#1f4a3b; --mat-grid:rgba(255,255,255,.07); --mat-grid2:rgba(255,255,255,.16);
+  --accent:#5fbf98; --accent-ink:#0f1a15; --soft:#222c27; --warn:#e0a650; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121815; --panel:#1b231f; --ink:#e7ece8; --muted:#9aa8a0; --line:#2c3732;
+  --mat:#1f4a3b; --mat-grid:rgba(255,255,255,.07); --mat-grid2:rgba(255,255,255,.16);
+  --accent:#5fbf98; --accent-ink:#0f1a15; --soft:#222c27; --warn:#e0a650; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:14px 32px}
+.wrap{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:10px}
+h1{font-family:var(--f-display);font-weight:400;font-size:30px;line-height:1;margin:0;letter-spacing:.5px;text-wrap:balance}
+.sub{color:var(--muted);margin:4px 0 0;font-size:13px}
+.hdr-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pill{font-family:var(--f-mono);font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--panel)}
+.pill.ok{color:var(--accent);border-color:var(--accent)}
+.pill.bad{color:var(--bg-hint);border-color:var(--bg-hint)}
+button,.btn{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:7px 12px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+button:hover{border-color:var(--accent)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+button:disabled{opacity:.45;cursor:not-allowed}
+.main{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:14px;align-items:start}
+@media (max-width:980px){.main{grid-template-columns:minmax(0,1fr)}}
+.bench{background:var(--mat);border-radius:12px;padding:12px;min-width:0;
+  background-image:linear-gradient(var(--mat-grid2) 1px,transparent 1px),linear-gradient(90deg,var(--mat-grid2) 1px,transparent 1px),linear-gradient(var(--mat-grid) 1px,transparent 1px),linear-gradient(90deg,var(--mat-grid) 1px,transparent 1px);
+  background-size:100px 100px,100px 100px,20px 20px,20px 20px}
+.tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center}
+.tabs button{background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.25)}
+.tabs button[aria-pressed="true"]{background:#fff;color:#1d2722;border-color:#fff;font-weight:600}
+.tabs .spacer{flex:1}
+.tabs .mm{font-family:var(--f-mono);font-size:12px;color:rgba(255,255,255,.8)}
+#editWrap{position:relative;display:flex;justify-content:center}
+#viewBox{position:relative;max-width:100%}
+#layerTag{position:absolute;top:8px;left:8px;pointer-events:none;background:rgba(0,0,0,.62);color:#fff;font-size:12px;padding:3px 8px;border-radius:6px;max-width:calc(100% - 16px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#layerTag:empty{display:none}
+.ov-key{color:#ff8c1a}
+.cut-key{color:#ff3d6e}
+#view{max-width:100%;height:auto;display:block;border-radius:4px;box-shadow:0 4px 18px rgba(0,0,0,.35);touch-action:none;cursor:crosshair;background:#fff}
+#stage3d{height:min(68vh,620px);perspective:1800px;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:grab;touch-action:none;border-radius:6px}
+#box{position:relative;transform-style:preserve-3d}
+.L3{position:absolute;inset:0;transform-style:preserve-3d}
+.L3 canvas{width:100%;height:100%;display:block}
+.L3.cut{filter:drop-shadow(0 5px 5px rgba(0,0,0,.35))}
+.clip{position:absolute;background:#f2a9b8;border:1px solid #d98597;border-radius:2px}
+.pv-ctrl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-top:10px;color:#fff;font-size:13px}
+.pv-ctrl button{background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.25)}
+.pv-ctrl input[type=range]{accent-color:#fff;width:140px}
+.hint-bar{margin-top:10px;color:rgba(255,255,255,.88);font-size:13px;min-height:20px}
+.rail{display:flex;flex-direction:column;gap:12px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.card h2{font-size:12px;font-weight:600;letter-spacing:.08em;color:var(--muted);margin:0;text-transform:uppercase}
+.layers{display:flex;flex-direction:column;gap:6px}
+.lrow{display:grid;grid-template-columns:22px minmax(0,1fr) 74px 26px;gap:6px;align-items:center;padding:6px;border-radius:8px;border:1px solid transparent;cursor:pointer}
+.lrow.on{border-color:var(--accent);background:var(--soft)}
+.lrow .sw{width:22px;height:22px;border-radius:5px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-family:var(--f-mono);font-size:11px;color:#1d2722}
+.lrow input[type=text]{width:100%;min-width:0;font:inherit;font-size:13px;border:1px solid var(--line);border-radius:6px;padding:4px 6px;background:var(--panel);color:var(--ink)}
+.zbox{display:flex;align-items:center;gap:3px;font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.zbox input{width:46px;font:inherit;border:1px solid var(--line);border-radius:6px;padding:4px;background:var(--panel);color:var(--ink);text-align:right}
+.lrow .del{padding:3px 6px;font-size:12px;color:var(--muted)}
+.tools{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.tools button{justify-content:center;flex-direction:column;gap:2px;padding:8px 4px;font-size:12px;white-space:normal;text-align:center}
+.tools button[aria-pressed="true"]{border-color:var(--accent);background:var(--soft);color:var(--accent);font-weight:600}
+.tools .ai-tool{grid-column:1/-1;flex-direction:row;gap:6px}
+.tools .dot{width:10px;height:10px;border-radius:50%}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.field{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center;font-size:13px}
+.field input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--accent)}
+.field output,.field .val{font-family:var(--f-mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.num{width:64px;font-family:var(--f-mono);font-size:12px;border:1px solid var(--line);border-radius:6px;padding:4px 6px;background:var(--panel);color:var(--ink);text-align:right}
+.note{font-size:12px;color:var(--muted);margin:0}
+.note.warn{color:var(--warn)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;border-radius:0;padding:5px 10px}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+#toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:calc(100% - 32px)}
+#toast.on{opacity:1}
+#ask{position:fixed;left:50%;bottom:calc(60px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:13px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;box-shadow:0 6px 20px rgba(0,0,0,.18);max-width:calc(100% - 32px);z-index:5}
+#ask[hidden]{display:none}
+.busy{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.35);color:#fff;font-size:14px;border-radius:6px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>페이퍼시어터 공방</h1>
+      <p class="sub">그림 한 장을 레이어로 나눠, 손으로 오려 쌓는 입체 종이극장 도안으로 만들어요.</p>
+    </div>
+    <div class="hdr-actions">
+      <span id="cvState" class="pill">OpenCV 불러오는 중…</span>
+      <label class="btn" for="file">이미지 열기</label>
+      <input id="file" type="file" accept="image/*" hidden>
+      <button id="loadSample">예시 그림</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <section class="bench" aria-label="작업대">
+      <div class="tabs">
+        <button id="tabEdit" aria-pressed="true">편집</button>
+        <button id="tab3d" aria-pressed="false">3D 미리보기</button>
+        <span class="spacer"></span>
+        <span class="mm" id="sizeLabel"></span>
+      </div>
+      <div id="editPane">
+        <div id="editWrap"><div id="viewBox"><canvas id="view"></canvas><span id="layerTag" aria-live="polite"></span></div></div>
+        <div class="hint-bar" id="hint"></div>
+      </div>
+      <div id="pvPane" hidden>
+        <div id="stage3d"><div id="box"></div></div>
+        <div class="pv-ctrl">
+          <button data-v="front">정면</button>
+          <button data-v="angle">비스듬히</button>
+          <button data-v="side">펼쳐 보기</button>
+          <label>레이어 간격 과장 <input id="ex" type="range" min="1" max="5" step="0.1" value="1"></label>
+          <label><input id="showClips" type="checkbox" checked> 클립</label>
+        </div>
+      </div>
+    </section>
+
+    <aside class="rail">
+      <div class="card">
+        <h2>레이어</h2>
+        <div class="layers" id="layers"></div>
+        <div class="row">
+          <button id="addLayer">레이어 추가</button>
+          <span class="note">번호가 클수록 앞쪽이에요. 숫자는 뒤판에서 떨어진 거리(mm)예요.</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>오려낼 영역 고르기</h2>
+        <div class="tools" id="tools">
+          <button data-tool="rect"><span>▭</span>범위 지정</button>
+          <button data-tool="fg"><span class="dot" style="background:var(--fg-hint)"></span>남길 곳</button>
+          <button data-tool="bg"><span class="dot" style="background:var(--bg-hint)"></span>뺄 곳</button>
+          <button data-tool="paint"><span>✎</span>직접 칠하기</button>
+          <button data-tool="erase"><span>⌫</span>지우개</button>
+          <button data-tool="poly"><span>⬠</span>다각형</button>
+          <button data-tool="ai" class="ai-tool"><span>✦</span>AI로 선택 (클릭)</button>
+        </div>
+        <div id="aiRow" hidden>
+          <p class="note" id="aiState" aria-live="polite"></p>
+          <div class="row">
+            <span class="seg" role="group" aria-label="AI 선택 크기"><button data-lv="0">크게</button><button data-lv="1">중간</button><button data-lv="2">작게</button></span>
+            <button id="aiNew" title="Esc">새 대상</button>
+          </div>
+        </div>
+        <div class="field">
+          <span>붓 크기</span><output id="brushOut">24px</output>
+          <input id="brush" type="range" min="4" max="120" value="24">
+        </div>
+        <div class="field">
+          <span>경계 넓히기/줄이기 (이 레이어)</span><output id="growOut">0mm</output>
+          <input id="grow" type="range" min="-3" max="3" step="0.5" value="0">
+        </div>
+        <div class="row" id="modeRow">
+          <span class="seg" role="group" aria-label="선택 방식"><button id="selAdd" aria-pressed="true">더하기</button><button id="selSub" aria-pressed="false">빼기</button></span>
+        </div>
+        <div class="row" id="polyRow" hidden>
+          <button id="polyClose">다각형 닫기</button>
+          <button id="polyCancel">취소</button>
+        </div>
+        <label class="row"><input id="showOthers" type="checkbox" checked> 다른 레이어 윤곽 보기</label>
+        <p class="note"><span class="ov-key" aria-hidden="true">■</span> 주황색은 앞 레이어에 가려지는 곳이에요. 같은 대상이 두 번 들어갔는지 확인해 주세요.</p>
+        <label class="row"><input id="showCut" type="checkbox" checked> 자를 선 미리보기</label>
+        <p class="note"><span class="cut-key" aria-hidden="true">━</span> 빨간 선이 실제로 자를 선이에요. 단순화, 테두리, 연결 다리가 반영돼요. 어둡게 가려진 곳은 단순화로 빠지는 부분이에요.</p>
+        <div class="row">
+          <button class="primary" id="runGC">자동 경계 다시 찾기</button>
+          <button id="clearHints">표시 지우기</button>
+          <button id="undo" title="Ctrl+Z">되돌리기</button>
+          <button id="redo" title="Ctrl+Shift+Z 또는 Ctrl+Y">다시 하기</button>
+          <button id="clearMask">레이어 비우기</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>크기와 구조</h2>
+        <div class="field"><span>완성 가로 크기</span><span class="val"><input id="widthMm" class="num" type="number" min="60" max="280" value="210"> mm</span></div>
+        <div class="field"><span>레이어 테두리 (클립 끼우는 곳)</span><span class="val"><input id="borderMm" class="num" type="number" min="0" max="20" value="6"> mm</span></div>
+        <div class="field"><span>맨 앞 프레임 두께</span><span class="val"><input id="frontMm" class="num" type="number" min="0" max="25" value="9"> mm</span></div>
+        <div class="field">
+          <span>손으로 자르기 쉽게 단순화</span><output id="smoothOut">4</output>
+          <input id="smooth" type="range" min="0" max="10" value="4">
+        </div>
+        <label class="row"><input id="fillHidden" type="checkbox" checked> 앞 레이어에 가려지는 부분 채우기</label>
+        <p class="note">테두리에 붙어 있지 않은 조각은 오리면 떨어지기 때문에, 아래 테두리까지 이어지는 연결 다리가 자동으로 들어가요.</p>
+        <p class="note" id="fitNote"></p>
+      </div>
+
+      <div class="card">
+        <h2>도안 저장</h2>
+        <p class="note">A4에 레이어 한 장씩, 빨간 자를 선과 클립 도안, 조립 순서가 들어간 PDF예요. 인쇄할 때 배율은 "실제 크기(100%)"로 맞춰 주세요.</p>
+        <div class="row"><button class="primary" id="exportPdf">도안 PDF 저장</button></div>
+      </div>
+    </aside>
+  </div>
+</div>
+<div id="toast" role="status"></div>
+<div id="ask" role="alertdialog" aria-labelledby="askMsg" hidden><span id="askMsg"></span><span class="row" id="askBtns"></span></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+"use strict";
+/* ---------- state ---------- */
+const S={W:0,H:0,src:null,layers:[],active:1,tool:'rect',brush:24,poly:[],selMode:'add',draft:null,cv:null,undo:[],redo:[],view:'edit',ex:1,rx:-10,ry:-24};
+const FRAME_COLORS=['#cfe3ee','#d3e6cf','#efe2c4','#f2d2d6','#e3d7ef','#d9ece6','#f4dcc8'];
+const FRONT_COLOR='#f3ead8';
+const $=id=>document.getElementById(id);
+const view=$('view'), vctx=view.getContext('2d');
+function mk(w,h){const c=document.createElement('canvas');c.width=w;c.height=h;return c}
+function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('on'),2600)}
+const tick=()=>new Promise(r=>setTimeout(r,30));
+function ask(msg,acts){$('askMsg').textContent=msg;const b=$('askBtns');b.innerHTML='';
+  acts.forEach(([t,f],k)=>{const x=document.createElement('button');x.textContent=t;if(!k)x.className='primary';x.onclick=()=>{hideAsk();f()};b.appendChild(x)});
+  $('ask').hidden=false}
+function hideAsk(){$('ask').hidden=true}
+
+/* ---------- OpenCV loading ---------- */
+function loadCV(){
+  const s=document.createElement('script');s.async=true;s.src="https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js";
+  s.onload=()=>{
+    const done=c=>{S.cv=c;window.cv=c;$('cvState').textContent='OpenCV 준비됨';$('cvState').className='pill ok';refreshButtons()};
+    const c=window.cv;
+    if(!c){fail();return}
+    if(typeof c.then==='function'){c.then(done)}
+    else if(c.Mat){done(c)}
+    else{c.onRuntimeInitialized=()=>done(c)}
+  };
+  s.onerror=fail;document.head.appendChild(s);
+  function fail(){$('cvState').textContent='OpenCV를 못 불러왔어요';$('cvState').className='pill bad';
+    toast('자동 경계 찾기 없이 직접 칠하기·다각형으로 작업할 수 있어요')}
+}
+
+/* ---------- layers ---------- */
+function layerColor(i){return i===S.layers.length-1&&i>0?FRONT_COLOR:FRAME_COLORS[i%FRAME_COLORS.length]}
+function newLayer(name,z){
+  return {name,z,mask:mk(S.W,S.H),fg:mk(S.W,S.H),bg:mk(S.W,S.H),rect:null};
+}
+function setupImage(canvas,layerDefs){
+  S.W=canvas.width;S.H=canvas.height;S.src=canvas;S.undo=[];S.redo=[];S.poly=[];hideAsk();
+  view.width=S.W;view.height=S.H;
+  S.layers=layerDefs.map(([n,z])=>newLayer(n,z));
+  const m=S.layers[0].mask.getContext('2d');m.fillStyle='#fff';m.fillRect(0,0,S.W,S.H);
+  S.active=Math.min(1,S.layers.length-1);S.aiLast=null;
+  renderLayers();render();updateSize();
+  if(AI.state==='ready')aiEncode();
+}
+function renderLayers(){
+  S.cutDirty=true;const box=$('layers');box.innerHTML='';
+  S.layers.forEach((L,i)=>{
+    const r=document.createElement('div');r.className='lrow'+(i===S.active?' on':'');
+    const col=layerColor(i);
+    r.innerHTML=`<span class="sw" style="background:${col}">${i+1}</span>
+      <input type="text" id="lname${i}" value="${L.name.replace(/"/g,'&quot;')}" aria-label="레이어 ${i+1} 이름">
+      <span class="zbox"><input type="number" id="lz${i}" min="0" max="80" step="1" value="${L.z}" aria-label="레이어 ${i+1} 거리" ${i===0?'disabled':''}>mm</span>
+      ${i===0?'<span></span>':`<button class="del" title="레이어 삭제" aria-label="레이어 ${i+1} 삭제">✕</button>`}`;
+    r.onclick=e=>{if(e.target.closest('input,button'))return;S.active=i;S.poly=[];renderLayers();render()};
+    r.querySelector('input[type=text]').onchange=e=>{L.name=e.target.value;render();if(S.view==='3d')build3D()};
+    r.querySelector('input[type=text]').onfocus=()=>{if(S.active!==i){S.active=i;S.poly=[];renderLayers();render();$('lname'+i).focus()}};
+    const zi=r.querySelector('input[type=number]');zi.onchange=e=>{L.z=Math.max(0,+e.target.value||0);updateSize();if(S.view==='3d')layout3D()};
+    const d=r.querySelector('.del');if(d)d.onclick=()=>{S.layers.splice(i,1);S.active=Math.min(S.active,S.layers.length-1);renderLayers();render();updateSize()};
+    box.appendChild(r);
+  });
+  refreshButtons();
+}
+$('addLayer').onclick=()=>{
+  if(!S.W)return;const last=S.layers[S.layers.length-1];
+  S.layers.push(newLayer('새 레이어',(last?last.z:0)+6));S.active=S.layers.length-1;renderLayers();render();updateSize()};
+
+/* ---------- tools ---------- */
+const HINTS={
+  rect:'오려낼 대상을 감싸도록 드래그하면 경계를 자동으로 찾아요. 여러 번 그리면 대상이 계속 추가돼요. "빼기"를 고르면 찾은 모양만큼 지워져요.',
+  fg:'잘못 빠진 부분을 초록색으로 칠하면 다시 계산해요.',
+  bg:'같이 잘린 배경을 빨간색으로 칠하면 다시 계산해요.',
+  paint:'붓으로 레이어 영역을 직접 칠해요. 자동 계산 없이 그대로 반영돼요.',
+  erase:'레이어 영역을 직접 지워요.',
+  poly:'클릭으로 꼭짓점을 찍고, 첫 점을 누르거나 두 번 클릭하면 닫혀요. 땅이나 언덕처럼 넓은 면에 좋아요.',
+  ai:'대상을 클릭하면 AI가 모양을 찾아요. 더 찍을수록 다듬어지고, Shift+클릭(또는 오른쪽 클릭)은 "여기는 아니에요" 점이에요.'
+};
+document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{
+  if(S.tool==='ai'&&b.dataset.tool!=='ai')aiEnd();
+  S.tool=b.dataset.tool;S.poly=[];refreshButtons();render();
+  if(S.tool==='ai')aiStart()});
+$('showOthers').onchange=()=>render();
+$('brush').oninput=e=>{S.brush=+e.target.value;$('brushOut').textContent=S.brush+'px'};
+$('selAdd').onclick=()=>{S.selMode='add';refreshButtons();render()};
+$('selSub').onclick=()=>{S.selMode='sub';refreshButtons();render()};
+$('polyClose').onclick=()=>closePoly();
+$('polyCancel').onclick=()=>{S.poly=[];render()};
+$('clearHints').onclick=()=>{const L=cur();if(!L)return;pushUndo(S.active,undefined,['fg','bg'],false);[L.fg,L.bg].forEach(c=>c.getContext('2d').clearRect(0,0,S.W,S.H));L.rect=null;render()};
+$('clearMask').onclick=()=>{const L=cur();if(!L||S.active===0)return;pushUndo();L.mask.getContext('2d').clearRect(0,0,S.W,S.H);render()};
+$('undo').onclick=()=>undo();
+$('redo').onclick=()=>redo();
+document.addEventListener('keydown',e=>{
+  if(!(e.ctrlKey||e.metaKey)||e.altKey)return;
+  if(e.target.closest&&e.target.closest('input[type=text],input[type=number],textarea,[contenteditable]'))return;
+  // e.code, so the shortcut also works with the Korean keyboard layout
+  if(e.code==='KeyZ'){e.preventDefault();e.shiftKey?redo():undo()}
+  else if(e.code==='KeyY'){e.preventDefault();redo()}
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&S.tool==='ai'&&!(e.target.closest&&e.target.closest('input,textarea'))){aiEnd();render()}
+});
+$('runGC').onclick=()=>runGrabCut();
+function cur(){return S.layers[S.active]}
+function refreshButtons(){
+  document.querySelectorAll('[data-tool]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.tool===S.tool));
+  $('polyRow').hidden=S.tool!=='poly';$('modeRow').hidden=!['poly','rect','ai'].includes(S.tool);$('aiRow').hidden=S.tool!=='ai';
+  $('selAdd').setAttribute('aria-pressed',S.selMode==='add');$('selSub').setAttribute('aria-pressed',S.selMode==='sub');
+  const base=S.active===0;
+  document.querySelectorAll('[data-tool],#runGC,#clearMask,#clearHints').forEach(b=>b.disabled=base||!S.W);
+  const L=cur(),gv=L&&!base?L.grow||0:0;$('grow').value=gv;$('grow').disabled=base||!S.W;
+  $('growOut').textContent=(gv>0?'+':'')+gv+'mm';
+  refreshAi();
+  if(!S.cv){['rect','fg','bg'].forEach(t=>{const b=document.querySelector(`[data-tool="${t}"]`);if(b)b.disabled=true});$('runGC').disabled=true}
+  $('hint').textContent=!S.W?'':base?'1번은 뒤판이에요. 그림 전체가 그대로 들어가요. 오른쪽에서 2번 이상 레이어를 골라 영역을 지정하세요.':HINTS[S.tool];
+}
+/* ---------- undo / redo ---------- */
+// snapshots keep only alpha: masks are always white and each hint layer is a single colour
+const PART_RGB={mask:[255,255,255],fg:[24,176,122],bg:[224,70,60]};
+const UNDO_MAX=30;
+let grpSeq=0;const newGrp=()=>++grpSeq;
+function snap(L,parts,grp){const e={L,grp,parts:{},rect:L.rect,gcBase:L.gcBase,gcKeep:L.gcKeep,gcMode:L.gcMode,aiPts:L.aiPts&&L.aiPts.slice(),aiLevel:L.aiLevel};
+  parts.forEach(p=>{const d=L[p].getContext('2d').getImageData(0,0,S.W,S.H).data;const a=new Uint8Array(S.W*S.H);
+    for(let i=0;i<a.length;i++)a[i]=d[i*4+3];e.parts[p]=a});
+  return e}
+function restoreSnap(e){const L=e.L;
+  for(const p in e.parts){const c=L[p].getContext('2d'),id=c.createImageData(S.W,S.H),d=id.data,a=e.parts[p],[r,g,b]=PART_RGB[p];
+    for(let i=0;i<a.length;i++){if(!a[i])continue;const k=i*4;d[k]=r;d[k+1]=g;d[k+2]=b;d[k+3]=a[i]}
+    c.putImageData(id,0,0)}
+  L.rect=e.rect;L.gcBase=e.gcBase;L.gcKeep=e.gcKeep;L.gcMode=e.gcMode;L.aiPts=e.aiPts;L.aiLevel=e.aiLevel}
+// endSession=false for hint strokes, which continue the current GrabCut selection
+function pushUndo(i=S.active,grp,parts=['mask'],endSession=true){const L=S.layers[i];if(!L)return;hideAsk();S.cutDirty=true;
+  S.undo.push(snap(L,parts,grp));if(S.undo.length>UNDO_MAX)S.undo.shift();S.redo=[];
+  if(endSession){L.gcBase=null;L.gcKeep=false}}
+// entries sharing a grp (hint stroke + its GrabCut, moving overlap out of several layers) go back in one step
+function undoStep(from,to){hideAsk();const top=from[from.length-1];if(!top)return false;S.aiLast=null;
+  const layers=new Set();
+  do{const e=from.pop();if(S.layers.indexOf(e.L)<0)continue;
+    to.push(snap(e.L,Object.keys(e.parts),e.grp));restoreSnap(e);layers.add(e.L)}
+  while(top.grp&&from.length&&from[from.length-1].grp===top.grp);
+  if(layers.size===1){const j=S.layers.indexOf([...layers][0]);if(j>=0)S.active=j}
+  S.poly=[];renderLayers();render();return true}
+function undo(){if(!undoStep(S.undo,S.redo))toast('되돌릴 작업이 없어요')}
+function redo(){if(!undoStep(S.redo,S.undo))toast('다시 할 작업이 없어요')}
+
+/* ---------- overlap with other layers ---------- */
+// before: mask ImageData of the active layer before the new selection was added
+function checkOverlap(before){
+  const L=cur(),li=S.active;if(!L||li===0||(L.gcKeep&&before===L.gcBase))return;
+  const now=L.mask.getContext('2d').getImageData(0,0,S.W,S.H).data,b=before.data;
+  const add=new Uint8Array(S.W*S.H);let n=0;
+  for(let i=0;i<add.length;i++)if(now[i*4+3]>127&&b[i*4+3]<=127){add[i]=1;n++}
+  if(!n)return;
+  const hits=[];
+  // only layers in front count, same rule as the orange highlight
+  S.layers.forEach((M,j)=>{if(j<=li)return;const d=M.mask.getContext('2d').getImageData(0,0,S.W,S.H).data;
+    let c=0;for(let i=0;i<add.length;i++)if(add[i]&&d[i*4+3]>127)c++;
+    if(c>=Math.max(150,n*.02))hits.push({M,j})});
+  if(!hits.length)return;
+  const names=hits.map(h=>`${h.j+1}번 "${h.M.name}"`).join(', ');
+  ask(`${names} 레이어에 이미 있어요. 지금 레이어로 옮길까요?`,[
+    ['옮기기',()=>moveOverlap(add,hits.map(h=>h.M))],
+    ['둘 다 두기',()=>{if(L.gcBase===before)L.gcKeep=true}]]);
+}
+function moveOverlap(add,targets){const grp=Date.now()+Math.random();
+  targets.forEach(M=>{const j=S.layers.indexOf(M);if(j<1)return;pushUndo(j,grp);
+    const c=M.mask.getContext('2d'),id=c.getImageData(0,0,S.W,S.H),d=id.data;
+    for(let i=0;i<add.length;i++)if(add[i])d[i*4+3]=0;
+    c.putImageData(id,0,0)});
+  render();toast('지금 레이어로 옮겼어요. 되돌리기로 취소할 수 있어요')}
+
+/* ---------- editor render ---------- */
+let tmp=null,tmp2=null,tmp3=null,tmpU=null;
+// thin line around a mask, drawn into tmp2
+function outline(mask,color){const t2=tmp2.getContext('2d');t2.globalCompositeOperation='source-over';t2.clearRect(0,0,S.W,S.H);
+  const o=Math.max(1.5,S.W/600);
+  for(const [dx,dy] of [[o,0],[-o,0],[0,o],[0,-o]])t2.drawImage(mask,dx,dy);
+  t2.globalCompositeOperation='destination-out';t2.drawImage(mask,0,0);
+  t2.globalCompositeOperation='source-in';t2.fillStyle=color;t2.fillRect(0,0,S.W,S.H);t2.globalCompositeOperation='source-over';
+  return tmp2}
+function render(){
+  if(!S.W)return;
+  if(!tmp||tmp.width!==S.W||tmp.height!==S.H){tmp=mk(S.W,S.H);tmp2=mk(S.W,S.H);tmp3=mk(S.W,S.H);tmpU=mk(S.W,S.H)}
+  const L=cur();vctx.clearRect(0,0,S.W,S.H);
+  $('layerTag').textContent=L?`${S.active+1}번 · ${L.name}`:'';
+  if(L)$('layerTag').style.borderLeft=`4px solid ${layerColor(S.active)}`;
+  if(S.active===0){vctx.drawImage(S.src,0,0)}
+  else{
+    vctx.fillStyle='#000';vctx.fillRect(0,0,S.W,S.H);
+    vctx.globalAlpha=.32;vctx.drawImage(S.src,0,0);vctx.globalAlpha=1;
+    const t=tmp.getContext('2d');t.globalCompositeOperation='source-over';t.clearRect(0,0,S.W,S.H);
+    t.drawImage(L.mask,0,0);t.globalCompositeOperation='source-in';t.drawImage(S.src,0,0);t.globalCompositeOperation='source-over';
+    vctx.drawImage(tmp,0,0);
+    const others=S.layers.map((_,j)=>j).filter(j=>j>0&&j!==S.active);
+    // orange: pixels of this layer that a layer in front also has
+    // (back layers may legitimately extend behind this one, so they are not counted)
+    const front=others.filter(j=>j>S.active);
+    if(front.length){
+      const u=tmpU.getContext('2d');u.clearRect(0,0,S.W,S.H);front.forEach(j=>u.drawImage(S.layers[j].mask,0,0));
+      const t3=tmp3.getContext('2d');t3.globalCompositeOperation='source-over';t3.clearRect(0,0,S.W,S.H);t3.drawImage(L.mask,0,0);
+      t3.globalCompositeOperation='source-in';t3.drawImage(tmpU,0,0);t3.fillStyle='#ff8c1a';t3.fillRect(0,0,S.W,S.H);t3.globalCompositeOperation='source-over';
+      vctx.globalAlpha=.6;vctx.drawImage(tmp3,0,0);vctx.globalAlpha=1;
+    }
+    if(others.length&&$('showOthers').checked){vctx.globalAlpha=.7;others.forEach(j=>vctx.drawImage(outline(S.layers[j].mask,layerColor(j)),0,0));vctx.globalAlpha=1}
+    const cp=$('showCut').checked&&S.cutPrev&&S.cutPrev.L===L?S.cutPrev:null;
+    if(cp)vctx.drawImage(cp.removed,0,0);
+    vctx.drawImage(outline(L.mask,'#ffe14d'),0,0);
+    if(cp)vctx.drawImage(outline(cp.shape,'#ff3d6e'),0,0);
+    vctx.globalAlpha=.75;vctx.drawImage(L.fg,0,0);vctx.drawImage(L.bg,0,0);vctx.globalAlpha=1;
+    const r=S.draft||L.rect;
+    const subR=S.draft?S.selMode==='sub':L.gcMode==='sub';
+    if(r){vctx.save();vctx.setLineDash([10,6]);vctx.lineWidth=Math.max(2,S.W/500);vctx.strokeStyle=subR?'#ff8a80':'#ffffff';vctx.strokeRect(r.x,r.y,r.w,r.h);vctx.restore()}
+    if(S.poly.length){vctx.save();vctx.lineWidth=Math.max(2,S.W/500);vctx.strokeStyle=S.selMode==='add'?'#7dffc8':'#ff8a80';
+      vctx.beginPath();S.poly.forEach((p,i)=>i?vctx.lineTo(p.x,p.y):vctx.moveTo(p.x,p.y));if(S.hover)vctx.lineTo(S.hover.x,S.hover.y);vctx.stroke();
+      vctx.fillStyle='#fff';S.poly.forEach(p=>{vctx.beginPath();vctx.arc(p.x,p.y,Math.max(3,S.W/300),0,7);vctx.fill()});vctx.restore()}
+    if(S.tool==='ai'&&L.aiPts&&L.aiPts.length){vctx.save();vctx.lineWidth=Math.max(2,S.W/500);vctx.strokeStyle='#fff';
+      L.aiPts.forEach(([x,y,lb])=>{vctx.fillStyle=lb?'#18b07a':'#e0463c';vctx.beginPath();vctx.arc(x,y,Math.max(5,S.W/160),0,7);vctx.fill();vctx.stroke()});vctx.restore()}
+  }
+  if(S.cutDirty&&!drag)scheduleCut();
+}
+
+/* ---------- pointer ---------- */
+function pt(e){const r=view.getBoundingClientRect();return{x:(e.clientX-r.left)*S.W/r.width,y:(e.clientY-r.top)*S.H/r.height}}
+let drag=null;
+view.addEventListener('pointerdown',e=>{
+  if(!S.W||S.active===0)return;const p=pt(e),L=cur();view.setPointerCapture(e.pointerId);
+  if(S.tool==='ai'){aiClick(p,e.shiftKey||e.button===2?0:1);return}
+  if(S.tool==='rect'){if(!S.cv)return;drag={t:'rect',p0:p};S.draft={x:p.x,y:p.y,w:0,h:0}}
+  else if(S.tool==='poly'){
+    if(S.poly.length>2){const f=S.poly[0];if(Math.hypot(f.x-p.x,f.y-p.y)<S.W/60){closePoly();return}}
+    S.poly.push(p);render();
+  } else {
+    const c=S.tool==='fg'?L.fg:S.tool==='bg'?L.bg:L.mask;
+    drag={t:'brush',c,last:p};
+    if(S.tool==='paint'||S.tool==='erase')pushUndo();
+    else{drag.grp=newGrp();pushUndo(S.active,drag.grp,['fg','bg'],false)}
+    stroke(c,p,p);render();
+  }
+});
+view.addEventListener('pointermove',e=>{
+  const p=pt(e);
+  if(S.tool==='poly'&&S.poly.length){S.hover=p;render();return}
+  if(!drag)return;
+  if(drag.t==='rect'){const a=drag.p0;S.draft={x:Math.min(a.x,p.x),y:Math.min(a.y,p.y),w:Math.abs(p.x-a.x),h:Math.abs(p.y-a.y)};render()}
+  else{stroke(drag.c,drag.last,p);drag.last=p;render()}
+});
+view.addEventListener('pointerup',async()=>{
+  if(!drag)return;const d=drag;drag=null;const L=cur();
+  if(d.t==='rect'){const r=S.draft;S.draft=null;
+    if(r&&r.w>8&&r.h>8){const grp=newGrp();pushUndo(S.active,grp,[]);L.rect=clampRect(r);await runGrabCut(grp)}else render()}
+  else if(S.tool==='fg'||S.tool==='bg'){
+    // the hint that marks the object GrabCut looks for: green when adding, red when taking out
+    const objTool=(L.gcBase?L.gcMode:S.selMode)==='sub'?'bg':'fg';
+    if(S.cv&&(L.rect||S.tool===objTool))await runGrabCut(d.grp)}
+  else render();
+});
+view.addEventListener('dblclick',()=>{if(S.tool==='poly')closePoly()});
+view.addEventListener('contextmenu',e=>{if(S.tool==='ai')e.preventDefault()});
+function stroke(c,a,b){
+  const g=c.getContext('2d');g.save();g.lineCap='round';g.lineJoin='round';g.lineWidth=S.brush*S.W/1000;
+  const L=cur();
+  if(S.tool==='erase'){g.globalCompositeOperation='destination-out';g.strokeStyle='#000'}
+  else if(S.tool==='paint'){g.strokeStyle='#fff'}
+  else {g.strokeStyle=S.tool==='fg'?'#18b07a':'#e0463c';
+    const other=(S.tool==='fg'?L.bg:L.fg).getContext('2d');other.save();other.globalCompositeOperation='destination-out';other.lineCap='round';other.lineWidth=g.lineWidth;other.beginPath();other.moveTo(a.x,a.y);other.lineTo(b.x+.01,b.y);other.stroke();other.restore()}
+  g.beginPath();g.moveTo(a.x,a.y);g.lineTo(b.x+.01,b.y);g.stroke();g.restore();
+}
+function closePoly(){
+  if(S.poly.length<3){toast('꼭짓점을 세 개 이상 찍어 주세요');return}
+  const g=cur().mask.getContext('2d');const before=g.getImageData(0,0,S.W,S.H);pushUndo();g.save();
+  g.globalCompositeOperation=S.selMode==='add'?'source-over':'destination-out';g.fillStyle='#fff';
+  g.beginPath();S.poly.forEach((p,i)=>i?g.lineTo(p.x,p.y):g.moveTo(p.x,p.y));g.closePath();g.fill();g.restore();
+  S.poly=[];S.hover=null;render();
+  if(S.selMode==='add')checkOverlap(before);
+}
+function clampRect(r){const x=Math.max(0,Math.floor(r.x)),y=Math.max(0,Math.floor(r.y));
+  return{x,y,w:Math.max(1,Math.min(S.W-x,Math.ceil(r.w))),h:Math.max(1,Math.min(S.H-y,Math.ceil(r.h)))}}
+
+/* ---------- GrabCut ---------- */
+function bboxAlpha(c){const d=c.getContext('2d').getImageData(0,0,S.W,S.H).data;let x0=1e9,y0=1e9,x1=-1,y1=-1;
+  for(let y=0;y<S.H;y++)for(let x=0;x<S.W;x++)if(d[(y*S.W+x)*4+3]>0){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}
+  return x1<0?null:{x:x0,y:y0,w:x1-x0+1,h:y1-y0+1}}
+function union(a,b){if(!a)return b;if(!b)return a;const x=Math.min(a.x,b.x),y=Math.min(a.y,b.y);return{x,y,w:Math.max(a.x+a.w,b.x+b.w)-x,h:Math.max(a.y+a.h,b.y+b.h)-y}}
+async function runGrabCut(grp){
+  const cv=S.cv,L=cur();if(!cv||!L||S.active===0)return;
+  if(!L.gcBase)L.gcMode=S.selMode;
+  // green always means "keep in this layer", red "take out". In 빼기 mode the object GrabCut looks for is the part to take out
+  const sub=L.gcMode==='sub',objHint=sub?L.bg:L.fg,keepHint=sub?L.fg:L.bg;
+  let r=L.rect;const fb=bboxAlpha(objHint);
+  if(fb){const pad=Math.round(Math.max(fb.w,fb.h)*.15)+6;r=union(r,clampRect({x:fb.x-pad,y:fb.y-pad,w:fb.w+2*pad,h:fb.h+2*pad}))}
+  if(!r){toast('먼저 "범위 지정"으로 대상을 감싸 주세요');return}
+  r=clampRect(r);
+  const busy=document.createElement('div');busy.className='busy';busy.textContent='경계 찾는 중…';$('editWrap').appendChild(busy);await tick();
+  const mats=[];
+  try{
+    const pad=Math.round(Math.max(r.w,r.h)*.06)+6;
+    const c=clampRect({x:r.x-pad,y:r.y-pad,w:r.w+2*pad,h:r.h+2*pad});
+    const id=S.src.getContext('2d').getImageData(c.x,c.y,c.w,c.h);
+    const src=cv.matFromImageData(id);mats.push(src);const rgb=new cv.Mat();mats.push(rgb);cv.cvtColor(src,rgb,cv.COLOR_RGBA2RGB);
+    const m=new cv.Mat(c.h,c.w,cv.CV_8UC1,new cv.Scalar(0));mats.push(m);
+    const md=m.data, rx=r.x-c.x, ry=r.y-c.y;
+    for(let y=ry;y<ry+r.h;y++)for(let x=rx;x<rx+r.w;x++)md[y*c.w+x]=3;
+    const fd=objHint.getContext('2d').getImageData(c.x,c.y,c.w,c.h).data, bd=keepHint.getContext('2d').getImageData(c.x,c.y,c.w,c.h).data;
+    let nf=0;for(let i=0;i<c.w*c.h;i++){if(fd[i*4+3]>0){md[i]=1;nf++}else if(bd[i*4+3]>0)md[i]=0}
+    const bgM=new cv.Mat(),fgM=new cv.Mat();mats.push(bgM,fgM);
+    cv.grabCut(rgb,m,new cv.Rect(0,0,1,1),bgM,fgM,4,1);
+    // result is added (OR) onto, or in 빼기 mode cut out of, the mask as it was before this selection;
+    // hint re-runs replace only the previous GrabCut result
+    const g=L.mask.getContext('2d');const base=L.gcBase||g.getImageData(0,0,S.W,S.H);
+    const keep=!!L.gcBase&&L.gcKeep;pushUndo(S.active,grp);L.gcBase=base;L.gcKeep=keep;
+    const out=g.getImageData(r.x,r.y,r.w,r.h);const od=out.data,bd0=base.data;
+    for(let y=0;y<r.h;y++)for(let x=0;x<r.w;x++){const v=md[(y+ry)*c.w+(x+rx)];const on=(v===1||v===3);const k=(y*r.w+x)*4;
+      const b=bd0[((y+r.y)*S.W+(x+r.x))*4+3];
+      od[k]=od[k+1]=od[k+2]=255;od[k+3]=on?(sub?0:255):b}
+    g.putImageData(out,r.x,r.y);
+    if(!sub)checkOverlap(base);
+  }catch(err){console.error(err);toast('경계를 찾지 못했어요. 범위를 조금 넓게 다시 그려 보세요')}
+  finally{mats.forEach(x=>x.delete());busy.remove();render()}
+}
+
+/* ---------- AI click select (optional: transformers.js + SlimSAM) ---------- */
+// nothing here loads until the user picks the AI tool; every other tool works without it
+const AI_LIB='https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1/dist/transformers.min.js';
+const AI_MODEL='Xenova/slimsam-77-uniform';
+const AI={state:'off',T:null,model:null,proc:null,gpu:false,files:{},emb:null,inputs:null,src:null,encSrc:null,encoding:null};
+// claude.ai Artifacts block outside fetches, so the model can't be downloaded there
+const aiBlocked=()=>!!(window.claude&&window.claude.use);
+async function aiHasGpu(){try{return !!(navigator.gpu&&await navigator.gpu.requestAdapter())}catch(e){return false}}
+async function aiCached(){try{const c=await caches.open('transformers-cache');return (await c.keys()).some(r=>r.url.includes('slimsam'))}catch(e){return false}}
+// a page opened straight from a file has no Cache Storage, so the model is fetched again each visit
+async function aiCanCache(){try{await caches.open('transformers-cache');return true}catch(e){return false}}
+function aiPct(){const f=Object.values(AI.files);if(!f.length)return 0;let a=0,b=0;f.forEach(([l,t])=>{a+=l;b+=t});return b?Math.round(a/b*100):0}
+function refreshAi(){
+  const st=$('aiState');if(!st)return;const L=cur();
+  st.className='note'+(AI.state==='error'||aiBlocked()?' warn':'');
+  st.textContent=aiBlocked()?'이 화면(claude.ai)에서는 AI 모델을 받을 수 없어요. 파일을 내려받아 브라우저에서 직접 열면 쓸 수 있어요.':
+    AI.state==='off'?'처음 한 번 AI 모델(약 17MB)을 받아야 해요.':
+    AI.state==='loading'?`AI 모델 받는 중… ${aiPct()}%`:
+    AI.state==='error'?'AI 모델을 받지 못했어요. 인터넷 연결을 확인하고 도구를 다시 골라 주세요.':
+    AI.encoding?'그림을 분석하는 중이에요…':
+    `준비됐어요 (${AI.gpu?'WebGPU':'CPU'}). 대상을 클릭하세요.`+(L&&L.aiPts&&L.aiPts.length?` 지금 점 ${L.aiPts.length}개.`:'');
+  const has=S.aiLast&&S.aiLast.L===L;
+  document.querySelectorAll('[data-lv]').forEach(b=>{b.disabled=!has;b.setAttribute('aria-pressed',has&&L.aiLevel===+b.dataset.lv)});
+  $('aiNew').disabled=!(L&&L.aiPts&&L.aiPts.length)}
+async function aiStart(){
+  if(aiBlocked()||AI.state==='loading'||AI.state==='ready')return;
+  if(await aiCached()){aiLoad();return}
+  const keep=await aiCanCache();
+  ask(keep?'AI 선택 모델(약 17MB)을 처음 한 번 받아요. 받은 뒤에는 브라우저에 저장돼서 다음부터는 바로 열려요.'
+    :'AI 선택 모델(약 17MB)을 받아요. 파일을 바로 연 화면이라 저장되지 않아서, 열 때마다 다시 받아요.',[['받기',aiLoad],['나중에',()=>{}]])}
+async function aiLoad(){
+  AI.state='loading';AI.files={};refreshAi();
+  try{
+    const T=AI.T=AI.T||await import(AI_LIB);
+    const progress_callback=p=>{if(p.status==='progress'&&p.total){AI.files[p.file]=[p.loaded,p.total];refreshAi()}};
+    AI.gpu=await aiHasGpu();
+    // image analysis on the GPU when there is one; the per-click decoder is small and fastest on wasm
+    const gpuOpts={dtype:{vision_encoder:'fp16',prompt_encoder_mask_decoder:'q8'},device:{vision_encoder:'webgpu',prompt_encoder_mask_decoder:'wasm'}};
+    const cpuOpts={dtype:'q8',device:'wasm'};
+    try{AI.model=await T.SamModel.from_pretrained(AI_MODEL,{...(AI.gpu?gpuOpts:cpuOpts),progress_callback})}
+    catch(err){if(!AI.gpu)throw err;console.warn('WebGPU failed, using wasm',err);AI.gpu=false;AI.model=await T.SamModel.from_pretrained(AI_MODEL,{...cpuOpts,progress_callback})}
+    AI.proc=await T.AutoProcessor.from_pretrained(AI_MODEL);
+    AI.state='ready';aiEncode();
+  }catch(err){console.error(err);AI.state='error';toast('AI 모델을 받지 못했어요')}
+  refreshAi()}
+// image embeddings, once per image
+function aiEncode(){
+  if(AI.state!=='ready'||!S.src)return Promise.resolve();
+  if(AI.src===S.src&&AI.emb)return Promise.resolve();
+  if(AI.encoding&&AI.encSrc===S.src)return AI.encoding;
+  const src=S.src;AI.encSrc=src;AI.emb=null;AI.src=null;
+  const job=(async()=>{
+    const id=src.getContext('2d').getImageData(0,0,src.width,src.height);
+    const inputs=await AI.proc(new AI.T.RawImage(id.data,src.width,src.height,4).rgb());
+    const emb=await AI.model.get_image_embeddings(inputs);
+    if(AI.encSrc===src){AI.inputs=inputs;AI.emb=emb;AI.src=src}
+  })().catch(err=>{console.error(err);toast('그림을 분석하지 못했어요')})
+    .finally(()=>{if(AI.encoding===job)AI.encoding=null;refreshAi()});
+  AI.encoding=job;refreshAi();return job}
+// points [x,y,label] in image px -> three candidate masks, biggest first
+async function aiDecode(pts){
+  const T=AI.T,inp=AI.inputs,rs=inp.reshaped_input_sizes[0];
+  const input_points=new T.Tensor('float32',pts.flatMap(p=>[p[0]/S.W*rs[1],p[1]/S.H*rs[0]]),[1,1,pts.length,2]);
+  const input_labels=new T.Tensor('int64',pts.map(p=>BigInt(p[2])),[1,1,pts.length]);
+  const out=await AI.model({...AI.emb,input_points,input_labels});
+  const m=(await AI.proc.post_process_masks(out.pred_masks,inp.original_sizes,inp.reshaped_input_sizes))[0];
+  const HW=S.W*S.H,res=[];
+  for(let k=0;k<3;k++){const sel=m.data.subarray(k*HW,(k+1)*HW);let a=0;for(let i=0;i<HW;i++)if(sel[i])a++;res.push({sel,area:a})}
+  return res.sort((a,b)=>b.area-a.area)}
+async function aiClick(p,label){
+  const L=cur();if(!L||S.active===0)return;
+  if(aiBlocked()){toast('이 화면에서는 AI 선택을 쓸 수 없어요');return}
+  if(AI.state==='off'||AI.state==='error'){aiStart();return}
+  if(AI.state!=='ready'){toast('AI 모델을 받는 중이에요. 잠시만 기다려 주세요');return}
+  if(S.aiBusy)return;S.aiBusy=true;
+  const busy=document.createElement('div');busy.className='busy';busy.textContent=AI.emb&&AI.src===S.src?'모양 찾는 중…':'그림 분석 중…';$('editWrap').appendChild(busy);
+  try{
+    await aiEncode();if(!AI.emb||AI.src!==S.src)return;
+    const fresh=!(L.aiPts&&L.aiPts.length);
+    // first point of a new object, or a "not here" point with nothing to refine yet
+    if(fresh&&!label){toast('먼저 대상 위를 클릭해 주세요');return}
+    pushUndo(S.active,newGrp(),['mask'],false);
+    if(fresh){L.gcBase=L.mask.getContext('2d').getImageData(0,0,S.W,S.H);L.gcKeep=false;L.gcMode=S.selMode;L.rect=null;L.aiLevel=0}
+    L.aiPts=[...(L.aiPts||[]),[p.x,p.y,label]];
+    S.aiLast={L,masks:await aiDecode(L.aiPts)};
+    aiApply(L);
+  }catch(err){console.error(err);toast('모양을 찾지 못했어요')}
+  finally{S.aiBusy=false;busy.remove();refreshAi();render()}}
+// selected candidate added onto (or in 빼기 mode cut out of) the mask as it was before this object
+function aiApply(L){
+  const sel=S.aiLast.masks[L.aiLevel||0].sel,sub=L.gcMode==='sub',bd=L.gcBase.data;
+  const g=L.mask.getContext('2d'),out=g.createImageData(S.W,S.H),od=out.data;
+  for(let i=0;i<sel.length;i++){const k=i*4;od[k]=od[k+1]=od[k+2]=255;od[k+3]=sel[i]?(sub?0:255):bd[k+3]}
+  g.putImageData(out,0,0);
+  if(!sub)checkOverlap(L.gcBase)}
+function aiEnd(){const L=cur();if(L&&L.aiPts&&L.aiPts.length){L.aiPts=[];L.gcBase=null}S.aiLast=null;refreshAi()}
+document.querySelectorAll('[data-lv]').forEach(b=>b.onclick=()=>{
+  const L=cur();if(!S.aiLast||S.aiLast.L!==L)return;
+  const last=S.aiLast;pushUndo(S.active,newGrp(),['mask'],false);S.aiLast=last;
+  L.aiLevel=+b.dataset.lv;aiApply(L);refreshAi();render()});
+$('aiNew').onclick=()=>{aiEnd();render()};
+
+/* ---------- final masks / textures ---------- */
+function pxPerMm(){return S.W/(+$('widthMm').value||210)}
+function alphaArr(c){const d=c.getContext('2d').getImageData(0,0,S.W,S.H).data;const a=new Uint8Array(S.W*S.H);for(let i=0;i<a.length;i++)a[i]=d[i*4+3]>127?255:0;return a}
+function finalMask(i){
+  const L=S.layers[i];const a=alphaArr(L.mask);if(i===0||!S.cv)return a;
+  const cv=S.cv,lv=+$('smooth').value;const m=cv.matFromArray(S.H,S.W,cv.CV_8UC1,a);
+  // per-layer boundary offset (mm), before simplifying
+  const gr=Math.round((L.grow||0)*pxPerMm());
+  if(gr){const ker=cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(2*Math.abs(gr)+1,2*Math.abs(gr)+1));
+    if(gr>0)cv.dilate(m,m,ker);else cv.erode(m,m,ker);ker.delete()}
+  if(lv>0){
+    const k=Math.max(3,Math.round(lv*S.W/700)*2+1);const ker=cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(k,k));
+    cv.morphologyEx(m,m,cv.MORPH_OPEN,ker);cv.morphologyEx(m,m,cv.MORPH_CLOSE,ker);
+    cv.GaussianBlur(m,m,new cv.Size(k,k),0);cv.threshold(m,m,127,255,cv.THRESH_BINARY);ker.delete();
+    const lab=new cv.Mat(),st=new cv.Mat(),ce=new cv.Mat();const n=cv.connectedComponentsWithStats(m,lab,st,ce);
+    const minA=S.W*S.H*0.0006*lv/4;const keep=new Uint8Array(n);for(let j=1;j<n;j++)keep[j]=st.intAt(j,4)>=minA?1:0;
+    const ld=lab.data32S,md=m.data;for(let p=0;p<md.length;p++)md[p]=keep[ld[p]]?255:0;
+    lab.delete();st.delete();ce.delete();
+  }
+  const out=new Uint8Array(m.data);m.delete();return out;
+}
+function dilateArr(a,r){if(!S.cv||r<1)return a;const cv=S.cv;const m=cv.matFromArray(S.H,S.W,cv.CV_8UC1,a);const k=cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(2*r+1,2*r+1));cv.dilate(m,m,k);k.delete();const o=new Uint8Array(m.data);m.delete();return o}
+function fillHidden(hole){
+  // inpaint hidden pixels on a reduced copy, then paste back only inside the hole
+  const cv=S.cv;const sc=Math.min(1,420/S.W);const w=Math.round(S.W*sc),h=Math.round(S.H*sc);
+  const small=mk(w,h);small.getContext('2d').drawImage(S.src,0,0,w,h);
+  const hc=mk(S.W,S.H),hg=hc.getContext('2d'),hd=hg.createImageData(S.W,S.H);for(let i=0;i<hole.length;i++){hd.data[i*4+3]=hole[i]}hg.putImageData(hd,0,0);
+  const hs=mk(w,h);hs.getContext('2d').drawImage(hc,0,0,w,h);
+  const sm=cv.matFromImageData(small.getContext('2d').getImageData(0,0,w,h));const rgb=new cv.Mat();cv.cvtColor(sm,rgb,cv.COLOR_RGBA2RGB);
+  const hdat=hs.getContext('2d').getImageData(0,0,w,h).data;const hm=new cv.Mat(h,w,cv.CV_8UC1);for(let i=0;i<w*h;i++)hm.data[i]=hdat[i*4+3]>20?255:0;
+  const k=cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(5,5));cv.dilate(hm,hm,k);
+  const dst=new cv.Mat();cv.inpaint(rgb,hm,dst,6,cv.INPAINT_TELEA);
+  const o=mk(w,h),og=o.getContext('2d'),oi=og.createImageData(w,h);for(let i=0;i<w*h;i++){oi.data[i*4]=dst.data[i*3];oi.data[i*4+1]=dst.data[i*3+1];oi.data[i*4+2]=dst.data[i*3+2];oi.data[i*4+3]=255}og.putImageData(oi,0,0);
+  [sm,rgb,hm,k,dst].forEach(x=>x.delete());
+  const full=mk(S.W,S.H),fg=full.getContext('2d');fg.imageSmoothingQuality='high';fg.drawImage(o,0,0,S.W,S.H);
+  const fd=fg.getImageData(0,0,S.W,S.H),sd=S.src.getContext('2d').getImageData(0,0,S.W,S.H);
+  for(let i=0;i<hole.length;i++)if(!hole[i]){fd.data[i*4]=sd.data[i*4];fd.data[i*4+1]=sd.data[i*4+1];fd.data[i*4+2]=sd.data[i*4+2]}
+  fg.putImageData(fd,0,0);return full;
+}
+// border (clip strip) of layer i; the front layer gets a thicker frame with rounded inner corners
+function frameOf(i){const n=S.layers.length,ppm=pxPerMm();const isFront=i===n-1&&i>0;
+  const bmm=i===0?0:(isFront?+$('frontMm').value:+$('borderMm').value);const b=Math.round(bmm*ppm);const rad=isFront?Math.round(4*ppm):0;
+  const test=(x,y)=>{if(b<=0)return false;if(x<b||y<b||x>=S.W-b||y>=S.H-b)return true;
+    if(rad>0){const cx=x<b+rad?b+rad:x>=S.W-b-rad?S.W-b-rad-1:-1,cy=y<b+rad?b+rad:y>=S.H-b-rad?S.H-b-rad-1:-1;if(cx>=0&&cy>=0&&Math.hypot(x-cx,y-cy)>rad)return true}
+    return false};
+  return{b,rad,isFront,test}}
+// the cut shape the PDF uses: border + piece with a 0.5mm white margin + bridges
+function cutArr(i,a){const ppm=pxPerMm(),F=frameOf(i);const edge=dilateArr(a,Math.max(2,Math.round(ppm*0.5)));const ca=new Uint8Array(S.W*S.H);
+  for(let y=0;y<S.H;y++)for(let x=0;x<S.W;x++){const p=y*S.W+x;if(edge[p]||F.test(x,y))ca[p]=255}
+  if(F.b>0&&S.cv)addBridges(ca,new Uint8Array(S.W*S.H*4),ppm,F.b,i);
+  return ca}
+
+/* ---------- cut line preview ---------- */
+let cutTimer=0;
+function scheduleCut(){clearTimeout(cutTimer);cutTimer=setTimeout(()=>{if(drag||!S.cutDirty)return;computeCut();render()},250)}
+function computeCut(){S.cutDirty=false;S.cutPrev=null;const i=S.active;if(!S.W||i===0||!$('showCut').checked)return;
+  const L=S.layers[i],a=finalMask(i),ca=cutArr(i,a),raw=alphaArr(L.mask);
+  const shape=mk(S.W,S.H),sg=shape.getContext('2d'),sd=sg.createImageData(S.W,S.H);
+  const removed=mk(S.W,S.H),rg=removed.getContext('2d'),rd=rg.createImageData(S.W,S.H);
+  for(let p=0;p<ca.length;p++){if(ca[p])sd.data[p*4+3]=255;if(raw[p]&&!a[p])rd.data[p*4+3]=150}
+  sg.putImageData(sd,0,0);rg.putImageData(rd,0,0);
+  S.cutPrev={L,shape,removed}}
+function hexRGB(h){return[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]}
+async function buildTextures(){
+  const n=S.layers.length,ppm=pxPerMm();const fm=[];
+  for(let i=0;i<n;i++){fm.push(finalMask(i));await tick()}
+  const tex=[],cut=[];let front=new Uint8Array(S.W*S.H);
+  for(let i=n-1;i>=0;i--){
+    let base=S.src;
+    if($('fillHidden').checked&&S.cv&&i<n-1){const hole=dilateArr(front,2);let any=0;for(let p=0;p<hole.length;p+=97)if(hole[p]){any=1;break}if(any)base=fillHidden(hole);await tick()}
+    const c=mk(S.W,S.H),g=c.getContext('2d');g.drawImage(base,0,0);const id=g.getImageData(0,0,S.W,S.H),d=id.data;
+    const a=fm[i];const edge=i>0?dilateArr(a,Math.max(2,Math.round(ppm*0.5))):a;
+    const F=frameOf(i),isFront=F.isFront,b=F.b,rad=F.rad;
+    const col=hexRGB(isFront?FRONT_COLOR:FRAME_COLORS[i%FRAME_COLORS.length]);
+    const ca=new Uint8Array(S.W*S.H);
+    for(let y=0;y<S.H;y++)for(let x=0;x<S.W;x++){const p=y*S.W+x,k=p*4;
+      const inFrame=F.test(x,y);
+      if(inFrame){d[k]=col[0];d[k+1]=col[1];d[k+2]=col[2];d[k+3]=255;ca[p]=255}
+      else if(i===0||a[p]){d[k+3]=255;ca[p]=255}
+      else if(edge[p]){d[k]=250;d[k+1]=250;d[k+2]=247;d[k+3]=255;ca[p]=255}
+      else d[k+3]=0;
+    }
+    if(i>0&&b>0&&S.cv)addBridges(ca,d,ppm,b,i);
+    g.putImageData(id,0,0);
+    if(isFront&&b>0){g.save();g.strokeStyle='rgba(70,50,35,.55)';g.lineWidth=Math.max(1.5,ppm*0.4);roundRect(g,b,b,S.W-2*b,S.H-2*b,rad);g.stroke();g.restore()}
+    tex[i]=c;cut[i]=ca;
+    for(let p=0;p<front.length;p++)if(a[p])front[p]=255;
+  }
+  return{tex,cut};
+}
+// pieces that would fall out after cutting get a thin strip down to the bottom border
+function addBridges(ca,d,ppm,b,li){
+  const cv=S.cv;const m=cv.matFromArray(S.H,S.W,cv.CV_8UC1,ca);const lab=new cv.Mat(),st=new cv.Mat(),ce=new cv.Mat();
+  const n=cv.connectedComponentsWithStats(m,lab,st,ce,4,cv.CV_32S);const ld=lab.data32S;const frameLab=ld[0];
+  const bw=Math.max(3,Math.round(3*ppm));let added=0;
+  for(let j=1;j<n;j++){if(j===frameLab)continue;if(st.intAt(j,4)<30)continue;
+    // lowest pixel of the piece
+    const x0=st.intAt(j,0),y0=st.intAt(j,1),w=st.intAt(j,2),h=st.intAt(j,3);let by=-1,bx=-1;
+    for(let y=y0+h-1;y>=y0&&by<0;y--)for(let x=x0;x<x0+w;x++)if(ld[y*S.W+x]===j){by=y;bx=x;break}
+    let xs=0,cnt=0;for(let x=x0;x<x0+w;x++)if(ld[by*S.W+x]===j){xs+=x;cnt++}bx=Math.round(xs/cnt);
+    for(let y=by-bw;y<S.H-b+2;y++)for(let x=bx-(bw>>1);x<=bx+(bw>>1);x++){if(x<0||x>=S.W||y<0)continue;const p=y*S.W+x;if(!ca[p]){ca[p]=255;d[p*4+3]=255}}
+    added++}
+  lab.delete();st.delete();ce.delete();m.delete();
+  S.bridges=S.bridges||{};S.bridges[li]=added;
+}
+function roundRect(g,x,y,w,h,r){g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath()}
+
+/* ---------- size ---------- */
+function updateSize(){
+  if(!S.W)return;const wmm=+$('widthMm').value||210,hmm=wmm*S.H/S.W;const D=depth();
+  $('sizeLabel').textContent=`${wmm} × ${hmm.toFixed(0)} × ${D} mm`;
+  const land=wmm>=hmm,pw=land?297:210,ph=land?210:297;
+  const fits=wmm<=pw-16&&hmm<=ph-30;
+  $('fitNote').textContent=fits?`A4 ${land?'가로':'세로'}에 실제 크기로 들어가요. 총 깊이 ${D}mm, 클립 길이 ${D+8}mm.`:`이 크기는 A4 한 장에 안 들어가요. 가로를 ${Math.floor(Math.min(pw-16,(ph-30)*S.W/S.H))}mm 이하로 줄여 주세요.`;
+  $('fitNote').className='note'+(fits?'':' warn');
+}
+function depth(){return Math.max(0,...S.layers.map(l=>l.z))}
+['widthMm','borderMm','frontMm'].forEach(id=>$(id).onchange=()=>{updateSize();S.cutDirty=true;render();if(S.view==='3d')build3D()});
+$('smooth').oninput=e=>{$('smoothOut').textContent=e.target.value;S.cutDirty=true;render()};
+$('grow').oninput=e=>{const L=cur();if(!L||S.active===0)return;L.grow=+e.target.value;refreshButtons();S.cutDirty=true;render()};
+$('grow').onchange=()=>{if(S.view==='3d')build3D()};
+$('showCut').onchange=()=>{S.cutDirty=true;render()};
+$('smooth').onchange=()=>{if(S.view==='3d')build3D()};
+$('fillHidden').onchange=()=>{if(S.view==='3d')build3D()};
+
+/* ---------- 3D preview ---------- */
+const box=$('box');let pvLayers=[],pvBusy=false,pvQueued=false;
+$('tabEdit').onclick=()=>setView('edit');$('tab3d').onclick=()=>setView('3d');
+function setView(v){S.view=v;$('tabEdit').setAttribute('aria-pressed',v==='edit');$('tab3d').setAttribute('aria-pressed',v==='3d');$('editPane').hidden=v!=='edit';$('pvPane').hidden=v!=='3d';if(v==='3d')build3D()}
+async function build3D(){
+  if(!S.W)return;if(pvBusy){pvQueued=true;return}pvBusy=true;
+  const st=$('stage3d');const busy=document.createElement('div');busy.className='busy';busy.textContent='미리보기 만드는 중…';st.style.position='relative';st.appendChild(busy);await tick();
+  try{
+    S.bridges={};const {tex}=await buildTextures();box.innerHTML='';pvLayers=[];
+    tex.forEach((c,i)=>{const d=document.createElement('div');d.className='L3'+(i?' cut':'');c.style.width='100%';d.appendChild(c);box.appendChild(d);pvLayers.push(d)});
+    layout3D();
+  }finally{busy.remove();pvBusy=false;if(pvQueued){pvQueued=false;build3D()}}
+}
+function layout3D(){
+  if(!pvLayers.length)return;const st=$('stage3d');const W=Math.min(st.clientWidth-60,760),H=W*S.H/S.W;const ppx=W/(+$('widthMm').value||210);
+  box.style.width=W+'px';box.style.height=H+'px';
+  pvLayers.forEach((d,i)=>d.style.transform=`translateZ(${S.layers[i].z*ppx*S.ex}px)`);
+  box.querySelectorAll('.clip').forEach(c=>c.remove());
+  const D=depth()*ppx*S.ex;
+  if($('showClips').checked){const cw=12*ppx,ch=D+8*ppx;
+    [[0.13,0],[0.87,0],[0.13,1],[0.87,1]].forEach(([fy,side])=>{const c=document.createElement('div');c.className='clip';
+      c.style.width=cw+'px';c.style.height=ch+'px';c.style.left=(side?W-cw+6*ppx:-6*ppx)+'px';c.style.top=(fy*H)+'px';
+      c.style.transformOrigin='center top';c.style.transform=`translateZ(${-4*ppx}px) rotateX(90deg)`;box.appendChild(c)})}
+  box.style.transform=`translateZ(${-D/2}px) rotateX(${S.rx}deg) rotateY(${S.ry}deg)`;
+}
+const VIEWS={front:[0,0,1],angle:[-10,-24,1],side:[-8,-40,2.4]};
+document.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>{[S.rx,S.ry,S.ex]=VIEWS[b.dataset.v];$('ex').value=S.ex;layout3D()});
+$('ex').oninput=e=>{S.ex=+e.target.value;layout3D()};$('showClips').onchange=layout3D;
+addEventListener('resize',()=>{if(S.view==='3d')layout3D()});
+(()=>{const st=$('stage3d');let d=null;
+  st.onpointerdown=e=>{d=[e.clientX,e.clientY,S.rx,S.ry];st.setPointerCapture(e.pointerId)};
+  st.onpointermove=e=>{if(!d)return;S.ry=Math.max(-80,Math.min(80,d[3]+(e.clientX-d[0])*.3));S.rx=Math.max(-60,Math.min(60,d[2]-(e.clientY-d[1])*.3));layout3D()};
+  st.onpointerup=()=>d=null;})();
+
+/* ---------- PDF ---------- */
+function textImg(lines,wmm,opts={}){
+  const ppm=8,w=Math.round(wmm*ppm);const fs=(opts.size||4)*ppm,lh=fs*1.45;const h=Math.ceil(lines.length*lh+fs*.4);
+  const c=mk(w,h),g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,w,h);g.fillStyle='#222';g.textBaseline='top';
+  lines.forEach((t,i)=>{const bold=typeof t==='object';const s=bold?t.t:t;g.font=`${bold?'600 ':''}${bold&&t.big?fs*1.3:fs}px "IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif`;g.fillText(s,0,i*lh)});
+  return{url:c.toDataURL('image/jpeg',0.9),w:wmm,h:h/ppm};
+}
+function contoursMm(arr,ppm,ox,oy){
+  const cv=S.cv;const m=cv.matFromArray(S.H,S.W,cv.CV_8UC1,arr);const cs=new cv.MatVector(),hi=new cv.Mat();
+  cv.findContours(m,cs,hi,cv.RETR_CCOMP,cv.CHAIN_APPROX_NONE);const out=[];
+  for(let i=0;i<cs.size();i++){const c=cs.get(i);if(cv.contourArea(c)<20){c.delete();continue}const ap=new cv.Mat();cv.approxPolyDP(c,ap,0.9,true);
+    const pts=[];for(let j=0;j<ap.rows;j++)pts.push([ox+ap.data32S[j*2]/ppm,oy+ap.data32S[j*2+1]/ppm]);out.push(pts);ap.delete();c.delete()}
+  m.delete();cs.delete();hi.delete();return out;
+}
+function drawPath(doc,pts){if(pts.length<2)return;const d=[];for(let i=1;i<pts.length;i++)d.push([pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]]);doc.lines(d,pts[0][0],pts[0][1],[1,1],'S',true)}
+async function exportPdf(){
+  if(!S.W)return;if(!window.jspdf){toast('PDF 라이브러리를 불러오지 못했어요');return}
+  if(!S.cv){toast('OpenCV가 준비된 뒤에 저장할 수 있어요');return}
+  const btn=$('exportPdf');btn.disabled=true;btn.textContent='PDF 만드는 중…';await tick();
+  try{
+    S.bridges={};const {tex,cut}=await buildTextures();const wmm=+$('widthMm').value||210,hmm=wmm*S.H/S.W,ppm=S.W/wmm;
+    const land=wmm>=hmm;const {jsPDF}=window.jspdf;const doc=new jsPDF({orientation:land?'l':'p',unit:'mm',format:'a4'});
+    const pw=land?297:210,ph=land?210:297;const ox=(pw-wmm)/2,oy=Math.max(22,(ph-hmm)/2+6);
+    const n=S.layers.length,D=depth();
+    tex.forEach((c,i)=>{
+      if(i)doc.addPage();const L=S.layers[i];
+      const lab=textImg([{t:`레이어 ${i+1} / ${n} · ${L.name}`},`뒤판에서 ${L.z}mm · 빨간 선을 따라 자르세요${i===0?' (바깥 테두리만)':''}`].concat(S.bridges&&S.bridges[i]?[`떨어지는 조각 ${S.bridges[i]}개에 아래 테두리까지 이어지는 연결 다리를 넣었어요.`]:[]),Math.min(200,pw-20),{size:3.6});
+      doc.addImage(lab.url,'JPEG',10,7,lab.w,lab.h);
+      const fl=mk(c.width,c.height),fx=fl.getContext('2d');fx.fillStyle='#fff';fx.fillRect(0,0,fl.width,fl.height);fx.drawImage(c,0,0);doc.addImage(fl.toDataURL('image/jpeg',0.92),'JPEG',ox,oy,wmm,hmm,undefined,'FAST');
+      doc.setDrawColor(230,0,78);doc.setLineWidth(0.25);
+      if(i===0)doc.rect(ox,oy,wmm,hmm,'S');else contoursMm(cut[i],ppm,ox,oy).forEach(p=>drawPath(doc,p));
+      // clip position ticks on the side edges
+      doc.setDrawColor(40,120,220);doc.setLineWidth(0.3);
+      [0.13,0.87].forEach(f=>{const y=oy+hmm*f;doc.line(ox-4,y,ox-1,y);doc.line(ox+wmm+1,y,ox+wmm+4,y)});
+      doc.setDrawColor(150);doc.setLineWidth(0.2);doc.line(ox,oy+hmm+5,ox+50,oy+hmm+5);doc.line(ox,oy+hmm+4,ox,oy+hmm+6);doc.line(ox+50,oy+hmm+4,ox+50,oy+hmm+6);
+      const sc=textImg(['50mm 확인용 눈금'],40,{size:3});doc.addImage(sc.url,'JPEG',ox+53,oy+hmm+3,sc.w,sc.h);
+    });
+    // clips page
+    doc.addPage();
+    const t=textImg([{t:'클립 4개',big:1},'두꺼운 종이나 얇은 하드보드지에 출력해 빨간 선을 따라 자르세요.','홈(가는 칸)에 레이어 테두리를 순서대로 끼워요. 왼쪽 끝 홈이 뒤판(레이어 1)이에요.',`홈 폭 0.6mm · 홈 깊이 5mm · 클립 길이 ${D+8}mm`],Math.min(220,pw-20),{size:3.6});
+    doc.addImage(t.url,'JPEG',10,10,t.w,t.h);
+    const cl=D+8,cw=12,sw=0.6,sd=5;let y=14+t.h+6;
+    doc.setDrawColor(230,0,78);doc.setLineWidth(0.25);
+    for(let k=0;k<4;k++){const x=20;const yy=y+k*(cw+10);
+      // outline with slits cut in from the inner (top) edge
+      const pts=[[x,yy]];S.layers.map(l=>l.z).sort((a,b)=>a-b).forEach(z=>{const sx=x+4+z-sw/2;pts.push([sx,yy],[sx,yy+sd],[sx+sw,yy+sd],[sx+sw,yy])});
+      pts.push([x+cl,yy],[x+cl,yy+cw],[x,yy+cw]);drawPath(doc,pts);
+      const lb=textImg([`클립 ${k+1}`],20,{size:3});doc.addImage(lb.url,'JPEG',x+cl+4,yy+3,lb.w,lb.h)}
+    // guide page
+    y=y+4*(cw+10)+4;
+    const guide=[{t:'조립 순서',big:1},
+      '1. 레이어 1~'+n+'을 160~200g 매트지에 실제 크기(100%)로 출력해요. 50mm 눈금으로 배율을 확인하세요.',
+      '2. 안쪽 구멍부터 먼저 파내고, 바깥 빨간 선은 나중에 잘라요. 아트칼 날은 자주 새로 꺾어 주세요.',
+      '3. 클립 4개를 오리고 홈을 정확히 파내요.',
+      '4. 레이어 1(뒤판)부터 번호 순서대로 클립 홈에 테두리를 끼워요. 파란 표시가 클립 위치예요.',
+      '5. 네 모서리 클립을 모두 끼우면 완성이에요. 흔들리면 홈에 풀을 살짝 발라 고정하세요.',
+      '',`완성 크기: ${wmm} × ${hmm.toFixed(0)} × ${D+8}mm (클립 포함)`];
+    const gi=textImg(guide,Math.min(250,pw-20),{size:3.6});
+    if(y+gi.h>ph-10){doc.addPage();y=12}
+    doc.addImage(gi.url,'JPEG',10,y,gi.w,gi.h);
+    const blob=doc.output('blob');await saveFile('paper-theater-도안.pdf',blob);
+  }catch(e){console.error(e);toast('PDF를 만들지 못했어요: '+(e.message||e))}
+  finally{btn.disabled=false;btn.textContent='도안 PDF 저장'}
+}
+async function saveFile(name,blob){
+  let dl=null;try{dl=window.claude&&window.claude.use?await window.claude.use('downloads'):null}catch(e){dl=null}
+  if(dl){try{await dl.save({filename:name,data:blob});toast('PDF를 저장했어요')}catch(e){toast(e&&e.code==='declined'?'저장을 취소했어요':'이 화면에서는 저장할 수 없어요')}return}
+  if(window.claude&&window.claude.use){toast('이 화면에서는 파일 저장을 쓸 수 없어요');return}
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000);toast('PDF를 저장했어요');
+  window.__lastPdfSize=blob.size;
+}
+$('exportPdf').onclick=exportPdf;
+
+/* ---------- image input ---------- */
+$('file').onchange=e=>{const f=e.target.files[0];if(!f)return;const img=new Image();img.onload=()=>{
+  const sc=Math.min(1,1400/Math.max(img.width,img.height));const c=mk(Math.round(img.width*sc),Math.round(img.height*sc));
+  c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(img.src);
+  setupImage(c,[['뒤판(배경)',0],['먼 풍경',5],['중간',10],['앞 대상',16],['맨 앞 틀',22]]);S.tool='rect';refreshButtons();
+  if(S.view==='3d')build3D();toast('2번 레이어부터 오려낼 영역을 지정하세요')};img.src=URL.createObjectURL(f);e.target.value=''};
+
+/* ---------- procedural sample scene ---------- */
+function sample(){
+  const W=1200,H=800;const parts=[];const P=()=>{const c=mk(W,H);parts.push(c);return c.getContext('2d')};
+  let g=P();const sky=g.createLinearGradient(0,0,0,H);sky.addColorStop(0,'#7cc3e8');sky.addColorStop(.7,'#d6eef5');g.fillStyle=sky;g.fillRect(0,0,W,H);
+  g.fillStyle='#fff3c4';g.beginPath();g.arc(880,170,70,0,7);g.fill();
+  g.fillStyle='rgba(255,255,255,.9)';[[260,150],[600,110],[1040,260]].forEach(([x,y])=>{[[0,0,46],[40,-14,38],[78,4,34],[-38,8,30]].forEach(([dx,dy,r])=>{g.beginPath();g.arc(x+dx,y+dy,r,0,7);g.fill()})});
+  g=P();g.fillStyle='#8fb7c9';g.beginPath();g.moveTo(0,470);[[150,330],[290,420],[430,300],[600,430],[760,320],[930,410],[1080,330],[1200,400],[1200,800],[0,800]].forEach(p=>g.lineTo(...p));g.closePath();g.fill();
+  g.fillStyle='#6f9fb3';g.beginPath();g.moveTo(0,520);[[200,420],[380,500],[560,410],[740,500],[940,430],[1200,510],[1200,800],[0,800]].forEach(p=>g.lineTo(...p));g.closePath();g.fill();
+  g=P();g.fillStyle='#7cb342';g.beginPath();g.moveTo(0,600);g.bezierCurveTo(250,470,520,470,760,540);g.bezierCurveTo(930,590,1080,520,1200,540);g.lineTo(1200,800);g.lineTo(0,800);g.closePath();g.fill();
+  g.fillStyle='#f6efe2';g.fillRect(560,410,150,110);g.fillStyle='#c95a3f';g.beginPath();g.moveTo(540,415);g.lineTo(635,340);g.lineTo(730,415);g.closePath();g.fill();
+  g.fillStyle='#6b8fb2';g.fillRect(612,450,44,70);g.fillStyle='#ffd77a';g.fillRect(578,440,26,24);g.fillRect(668,440,26,24);
+  [[300,520],[380,500],[880,535]].forEach(([x,y])=>{g.fillStyle='#7a5536';g.fillRect(x-6,y-10,12,40);g.fillStyle='#3f7d3a';g.beginPath();g.moveTo(x-40,y);g.lineTo(x,y-120);g.lineTo(x+40,y);g.closePath();g.fill()});
+  g=P();g.fillStyle='#5a9b3c';g.beginPath();g.moveTo(0,680);g.bezierCurveTo(300,600,700,640,1200,620);g.lineTo(1200,800);g.lineTo(0,800);g.closePath();g.fill();
+  [[180,640,'#ff7a7a'],[260,655,'#ffd166'],[340,650,'#ff9ecf'],[980,630,'#ffd166'],[1060,640,'#ff7a7a']].forEach(([x,y,c])=>{g.fillStyle='#2f6b2f';g.fillRect(x-2,y,4,40);g.fillStyle=c;for(let k=0;k<5;k++){g.beginPath();g.arc(x+Math.cos(k*1.256)*12,y+Math.sin(k*1.256)*12,10,0,7);g.fill()}g.fillStyle='#fff6c9';g.beginPath();g.arc(x,y,7,0,7);g.fill()});
+  // rabbit
+  g.fillStyle='#fbfaf7';g.beginPath();g.ellipse(700,650,60,48,0,0,7);g.fill();g.beginPath();g.arc(650,600,36,0,7);g.fill();
+  g.beginPath();g.ellipse(632,540,12,38,-.15,0,7);g.fill();g.beginPath();g.ellipse(662,536,12,40,.12,0,7);g.fill();
+  g.fillStyle='#f4b6c2';g.beginPath();g.ellipse(632,542,5,26,-.15,0,7);g.fill();g.beginPath();g.ellipse(662,538,5,28,.12,0,7);g.fill();
+  g.fillStyle='#333';g.beginPath();g.arc(640,596,4,0,7);g.fill();
+  g=P();g.fillStyle='#2e6b35';
+  const blob=(pts)=>pts.forEach(([x,y,r])=>{g.beginPath();g.arc(x,y,r,0,7);g.fill()});
+  blob([[0,0,180],[150,-10,120],[250,40,90],[60,170,110],[-10,300,120],[120,90,90]]);
+  blob([[1200,0,180],[1050,-10,120],[950,40,90],[1140,170,110],[1210,300,120],[1080,90,90]]);
+  g.fillStyle='#3d8a44';blob([[90,60,70],[200,40,50],[40,220,60],[1110,60,70],[1000,40,50],[1160,220,60]]);
+  const comp=mk(W,H),cg=comp.getContext('2d');parts.forEach(p=>cg.drawImage(p,0,0));
+  setupImage(comp,[['하늘',0],['먼 산',5],['언덕과 집',10],['풀밭과 토끼',16],['앞 나무 틀',22]]);
+  parts.forEach((p,i)=>{if(i===0)return;const m=S.layers[i].mask.getContext('2d');m.drawImage(p,0,0);m.globalCompositeOperation='source-in';m.fillStyle='#fff';m.fillRect(0,0,W,H);m.globalCompositeOperation='source-over'});
+  S.active=1;S.tool='rect';renderLayers();render();
+}
+$('loadSample').onclick=()=>{sample();if(S.view==='3d')build3D();toast('예시 그림을 불러왔어요')};
+
+sample();refreshButtons();loadCV();
+</script>
+</body></html>
