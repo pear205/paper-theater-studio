@@ -31,7 +31,7 @@
 | 단순화 | 모폴로지 open/close → 가우시안 블러 → 임계값 → 작은 섬 제거 (손으로 자르기 쉬운 외곽선) |
 | 자를 선 미리보기 | 편집 화면에 빨간 선(`#showCut`). PDF와 같은 `cutArr()`(테두리 `frameOf()` + 0.5mm 여백 + 연결 다리)를 쓰므로 PDF 자를 선과 픽셀 단위로 같다. 단순화로 빠지는 곳은 어둡게 표시. 1400px에서 약 0.2초라 `S.cutDirty` 표시 후 손을 뗀 뒤 250ms 디바운스로 계산(`scheduleCut`) |
 | 가려진 부분 채우기 | `fillHidden(hole,li,fm)`(async). 레이어가 실제 쓰는 영역의 bbox만 원본 해상도에서 계산. ① 구멍 전체를 구멍 밖 픽셀만으로 push-pull(`f1PushPull`) ② 비스듬히 보일 수 있는 띠(앞 레이어 j마다 `(z_j−z_i)·tan40°+1mm`, `cv.distanceTransform`)만 1/2 크기 Telea로 다듬고 안쪽으로 갈수록 push-pull과 섞음. 구멍 안 원래 픽셀(앞 물체 색)은 쓰지 않아 실루엣 얼룩이 없다. 레이어당 약 0.16초 이하. 무늬는 못 살린다(나중에 MI-GAN 검토) |
-| 휴대폰 편집 | 폭 767px 이하에서만. 하단 고정 막대 `#mbar`(도구·더하기/빼기·이전/다음 레이어·되돌리기·맞춤 + 상황별 줄: 다각형 닫기/취소, AI 새 대상·크기·뺄 점, 붓 크기). 막대 버튼은 기존 버튼 `.click()`을 부르고 `f2Sync()`로 상태 반영. 두 손가락 핀치(1~6배)·이동은 `#editWrap` capture 리스너 + `#view` CSS transform(`pt()`가 getBoundingClientRect라 좌표 자동). 두 번째 손가락·`pointercancel`이면 첫 손가락 동작 취소(`cancelFirst`). 휴대폰에서 AI 클릭·다각형 점은 탭(pointerup, 10px 이내). AI "뺄 점" 토글 `#aiNeg`(모든 폭) |
+| 휴대폰 편집 | 폭 767px 이하에서만. 하단 고정 막대 `#mbar`(도구·더하기/빼기·이전/다음 레이어·되돌리기·맞춤 + 상황별 줄: 다각형 닫기/취소, AI 새 대상·후보 썸네일 3개·뺄 점, 붓 크기). 막대 버튼은 기존 버튼 `.click()`을 부르고 `f2Sync()`로 상태 반영. 두 손가락 핀치(1~6배)·이동은 `#editWrap` capture 리스너 + `#view` CSS transform(`pt()`가 getBoundingClientRect라 좌표 자동). 두 번째 손가락·`pointercancel`이면 첫 손가락 동작 취소(`cancelFirst`). 휴대폰에서 다각형 점은 탭(pointerup, 10px 이내). AI는 터치면 폭과 관계없이 탭으로 확정, 꾹 누르기(350ms)는 미리 보기 후 손을 뗄 때 확정. AI "뺄 점" 토글 `#aiNeg`(모든 폭) |
 | 작업 저장 | IndexedDB `paper-theater`/`kv`/`project`(`version:1`, 원본 PNG Blob은 setup 때 한 번, 바뀐 레이어 마스크만 재인코딩, 설정 7개). 1.5초 디바운스, `drag` 중엔 미룸. `pushUndo`/`undoStep`을 F3 구역에서 감싸 레이어를 더럽게 표시. 시작 시 `ptStart()`: 저장본이 있으면 "지난 작업을 이어서 할까요?", 답하기 전엔 자동 저장 꺼짐(`PT.armed`). 질문이 버튼 없이 닫히면 저장본을 `prev` 키로 백업한 뒤 저장 재개. "작업 저장" 카드: `.ptheater.json` 파일 저장/불러오기(dataURL). `saveFile(name,blob,okMsg)` |
 | 깊이 자동 나누기 | 레이어 카드 "깊이로 자동 나누기 (AI)"(`#depthSplit`, 상태 `DEPTH`). `onnx-community/depth-anything-v2-small`, `pipeline('depth-estimation')`, wasm q8 27.3MB(WebGPU `shader-f16`이면 fp16 49.6MB), 추론 4~5초(wasm). 먼 띠(하늘)는 1번 뒤판에만. 레이어 k = 깊이 ≥ 임계값_k인 띠 ∪ 각 열에서 그 띠 맨 윗점 아래 전부(위 테두리에 붙은 조각은 맨 윗점 계산에서 제외). 정리 후 앞 레이어가 뒤 레이어 안에 들어가게 맞춤. 한 번의 되돌리기로 전부 취소, z는 안 바꿈. 추론 중 편집이 있으면 다시 확인 |
 | 확장 지점 | `hook(name,fn)`/`fire(name)`: `setup`, `layers`, `buttons`, `render`, `view`, `opened`. 기능별 코드는 `/* @F1 js */`~`/* @F4 js */` 구역 |
@@ -62,7 +62,7 @@
 ## 테스트 (2026-10-25 이후)
 
 - Playwright 1.48.2는 프로젝트 밖(scratchpad의 `pw` 폴더)에 설치. 사용법·require 경로는 `prototype/work/tests/README.md`.
-- `prototype/work/tests/`: `smoke`, `fill`, `mobile`(28항목), `save`, `split`, `integration`(16항목). 모두 URL을 인자로 받고, 이미지 출력은 `OUT_DIR` 환경변수로 바꿀 수 있다. 로컬 서버(`python -m http.server 8765`, 프로젝트 루트)가 필요하다.
+- `prototype/work/tests/`: `smoke`, `fill`, `mobile`(28항목), `save`, `split`, `integration`(16항목), `ai`(실제 SlimSAM 사용, 미리 보기·후보·순환·터치 꾹 누르기). 모두 URL을 인자로 받고, 이미지 출력은 `OUT_DIR` 환경변수로 바꿀 수 있다. 로컬 서버(`python -m http.server 8765`, 프로젝트 루트)가 필요하다.
 - `prototype/work/`의 `base.html`·`fill/mobile/save/split.html`은 병렬 작업에 쓴 사본이다(병합 끝남, 본 파일이 최신). git에는 올리지 않는다(`.gitignore`).
 
 ## 형상 관리·배포
@@ -83,7 +83,9 @@
 5. **마법봉** (AI 없는 자동 선택: 색 허용치 + 연결 영역, 단색 일러스트에 강함)
 6. ~~AI 클릭 선택~~ (완료): `@huggingface/transformers@3.8.1`(jsDelivr ESM, 동적 import) + `Xenova/slimsam-77-uniform`. "AI로 선택 (클릭)" 도구를 처음 고를 때만 라이브러리·모델을 받는다(`aiStart` → 동의 창 → `aiLoad`). 이미 캐시에 있으면 묻지 않고 바로 연다.
    - 백엔드: WebGPU가 있으면 이미지 인코더 `webgpu`+fp16, 클릭 디코더 `wasm`+q8(약 17MB, 인코딩 약 0.7초, 클릭 약 0.13초). 없거나 실패하면 둘 다 `wasm`+q8(약 14MB, 인코딩 약 4초). 2026-10 sample1(1000×672) 기준.
-   - 인코딩은 그림마다 한 번(`aiEncode`, `setupImage`에서 자동). 클릭은 `[x,y,label]` 점을 쌓아 다시 디코딩(`aiDecode`). Shift/오른쪽 클릭은 label 0. 후보 3개를 면적순으로 "크게/중간/작게" 버튼에 대응하고, 기본은 "크게".
+   - 인코딩은 그림마다 한 번(`aiEncode`, `setupImage`에서 자동). 클릭은 `[x,y,label]` 점을 쌓아 다시 디코딩(`aiDecode`). Shift/오른쪽 클릭은 label 0. 후보 3개는 면적순(크게/중간/작게) 썸네일 버튼 `#aiCands [data-lv]`(`aiThumbs`, 후보 셋의 bbox로 잘라 후보만 색칠). 기본 후보는 `aiPick`: IoU 점수가 가장 높은 것, 단 가장 큰 후보 면적의 10% 미만이면 제외(측정: 예시 그림 토끼는 "크게"가 집까지 잡고 IoU 최고가 토끼 전체, sample1 사슴·소녀 얼굴 클릭은 IoU 최고가 얼굴). 같은 곳(`aiNear`, 약 W/120px)을 같은 종류로 다시 클릭하면 점을 더하지 않고 다음 후보로 바꾼다(`aiLevel`, 되돌리기 한 단계).
+   - 미리 보기: 마우스를 올리면 `aiHover` → `aiHoverRun`이 저해상도 `pred_masks`(256px)만 써서 클릭 결과 윤곽을 하늘색(빼기면 분홍)으로 그린다(`AI.pc`, `AI.pv`). 디코딩은 한 번에 하나, 항상 마지막 위치. 클릭은 진행 중인 미리 보기를 기다린 뒤 디코딩한다. Shift를 누르고 있으면 뺄 점 미리 보기.
+   - 상자(드래그) 프롬프트는 없다: `Xenova/slimsam-77-uniform`의 디코더 입력이 `input_points`, `input_labels`, `image_embeddings`, `image_positional_embeddings`뿐이라 `input_boxes`를 받지 않는다. 상자 모서리를 label 2/3 점으로 넣는 방식은 sample1에서 배경을 잡아 쓰지 않았다.
    - 적용은 GrabCut과 같은 세션 구조(`gcBase` OR / 빼기 모드면 AND NOT). 점 목록 `L.aiPts`와 `L.aiLevel`도 되돌리기 기록에 들어간다. "새 대상"·Esc·다른 도구로 바꾸기를 하면 세션이 끝난다.
    - 캐시: transformers.js 기본 Cache Storage(`transformers-cache`). 파일을 바로 연 화면(origin `null`)에서는 Cache Storage가 없어 열 때마다 다시 받는다(동의 창 문구가 그에 맞게 바뀜). 로컬 서버(`python -m http.server`)로 열면 저장된다.
    - claude.ai Artifact 안(`window.claude.use` 있음)에서는 비활성화하고 안내만 보여 준다.

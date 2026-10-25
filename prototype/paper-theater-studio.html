@@ -101,6 +101,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
 /* ---- */
 /* @F2 css */
 #aiNeg[aria-pressed="true"]{background:#e0463c;border-color:#e0463c;color:#fff}
+#aiCands{gap:6px}#aiCands button{padding:2px;border-width:2px}#aiCands canvas{width:64px;height:48px;display:block;border-radius:4px;background:#111}
+#aiCands button[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 #mbar{display:none}
 @media (max-width:767px){
   body{margin:0;padding-top:8px;padding-left:max(6px,env(safe-area-inset-left,0px));padding-right:max(6px,env(safe-area-inset-right,0px));padding-bottom:calc(24px + var(--mbar-h,0px))}
@@ -120,6 +122,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
   #mbar .mt{flex-direction:column;gap:0;line-height:1.1;font-size:11px;min-height:44px}
   #mbar .mt span{font-size:16px;line-height:1}
   #mbar button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  #mbar [data-mlv]{padding:2px}#mbar [data-mlv] canvas{width:100%;max-width:48px;height:34px;display:block;border-radius:3px;background:#111}
   #mbar #mNeg[aria-pressed="true"]{background:#e0463c;border-color:#e0463c;color:#fff}
   #mbar .mname{flex:3 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;line-height:40px;font-weight:600}
   #mbar input[type=range]{flex:1;min-width:0;height:40px}
@@ -197,7 +200,9 @@ button:disabled{opacity:.45;cursor:not-allowed}
         <div id="aiRow" hidden>
           <p class="note" id="aiState" aria-live="polite"></p>
           <div class="row">
-            <span class="seg" role="group" aria-label="AI 선택 크기"><button data-lv="0">크게</button><button data-lv="1">중간</button><button data-lv="2">작게</button></span>
+            <span class="row" id="aiCands" role="group" aria-label="AI가 찾은 후보 3가지"><button data-lv="0" aria-label="후보 1"><canvas width="96" height="72"></canvas></button><button data-lv="1" aria-label="후보 2"><canvas width="96" height="72"></canvas></button><button data-lv="2" aria-label="후보 3"><canvas width="96" height="72"></canvas></button></span>
+          </div>
+          <div class="row">
             <button id="aiNew" title="Esc">새 대상</button>
             <button id="aiNeg" aria-pressed="false" title="켜면 다음 클릭이 '여기는 아니에요' 점이에요 (Shift+클릭과 같아요)" disabled>뺄 점</button>
           </div>
@@ -266,7 +271,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 <div id="mbar" role="toolbar" aria-label="편집 도구 막대">
   <div class="mr" id="mCtx" hidden>
     <span class="mr" id="mPoly" hidden><button id="mPolyClose">닫기</button><button id="mPolyCancel">취소</button></span>
-    <span class="mr" id="mAi" hidden><button id="mAiNew">새 대상</button><button data-mlv="0">크게</button><button data-mlv="1">중간</button><button data-mlv="2">작게</button><button id="mNeg" aria-pressed="false">뺄 점</button></span>
+    <span class="mr" id="mAi" hidden><button id="mAiNew">새 대상</button><button data-mlv="0" aria-label="후보 1"><canvas width="96" height="72"></canvas></button><button data-mlv="1" aria-label="후보 2"><canvas width="96" height="72"></canvas></button><button data-mlv="2" aria-label="후보 3"><canvas width="96" height="72"></canvas></button><button id="mNeg" aria-pressed="false">뺄 점</button></span>
     <span class="mr" id="mMode" hidden><button id="mAdd">더하기</button><button id="mSub">빼기</button></span>
     <span class="mr" id="mBrush" hidden style="flex:1"><span class="ml">붓</span><input id="mBrushR" type="range" min="4" max="120" aria-label="붓 크기"><span class="ml" id="mBrushOut"></span></span>
   </div>
@@ -372,7 +377,7 @@ const HINTS={
   paint:'붓으로 레이어 영역을 직접 칠해요. 자동 계산 없이 그대로 반영돼요.',
   erase:'레이어 영역을 직접 지워요.',
   poly:'클릭으로 꼭짓점을 찍고, 첫 점을 누르거나 두 번 클릭하면 닫혀요. 땅이나 언덕처럼 넓은 면에 좋아요.',
-  ai:'대상을 클릭하면 AI가 모양을 찾아요. 더 찍을수록 다듬어지고, Shift+클릭(또는 오른쪽 클릭)은 "여기는 아니에요" 점이에요.'
+  ai:'대상 위에 마우스를 올려 보면 찾을 모양이 미리 보여요. 클릭하면 확정돼요. 같은 곳을 다시 클릭하거나 아래 작은 그림을 누르면 다른 후보로 바뀌어요. Shift+클릭(또는 오른쪽 클릭)은 "여기는 아니에요" 점이에요. 휴대폰에서는 꾹 누르면 미리 보이고, 손을 떼면 확정돼요.'
 };
 document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{
   if(S.tool==='ai'&&b.dataset.tool!=='ai')aiEnd();
@@ -514,6 +519,10 @@ function render(){
       vctx.fillStyle='#fff';S.poly.forEach(p=>{vctx.beginPath();vctx.arc(p.x,p.y,Math.max(3,S.W/300),0,7);vctx.fill()});vctx.restore()}
     if(S.tool==='ai'&&L.aiPts&&L.aiPts.length){vctx.save();vctx.lineWidth=Math.max(2,S.W/500);vctx.strokeStyle='#fff';
       L.aiPts.forEach(([x,y,lb])=>{vctx.fillStyle=lb?'#18b07a':'#e0463c';vctx.beginPath();vctx.arc(x,y,Math.max(5,S.W/160),0,7);vctx.fill();vctx.stroke()});vctx.restore()}
+    // AI hover preview: what a click here would give
+    if(S.tool==='ai'&&AI.pv&&AI.pv.L===L&&AI.pv.src===S.src&&AI.pc){const col=AI.pv.sub?'#ff8a80':'#5ee7ff',t3=tmp3.getContext('2d');
+      t3.globalCompositeOperation='source-over';t3.clearRect(0,0,S.W,S.H);t3.drawImage(AI.pc,0,0);t3.globalCompositeOperation='source-in';t3.fillStyle=col;t3.fillRect(0,0,S.W,S.H);t3.globalCompositeOperation='source-over';
+      vctx.globalAlpha=.3;vctx.drawImage(tmp3,0,0);vctx.globalAlpha=1;vctx.drawImage(outline(AI.pc,col),0,0)}
   }
   if(S.cutDirty&&!drag)scheduleCut();
   fire('render');
@@ -540,6 +549,7 @@ view.addEventListener('pointerdown',e=>{
 view.addEventListener('pointermove',e=>{
   const p=pt(e);
   if(S.tool==='poly'&&S.poly.length){S.hover=p;render();return}
+  if(S.tool==='ai'&&e.pointerType!=='touch'&&!e.buttons&&S.active>0){aiHover(p,e.shiftKey||aiNeg?0:1);return}
   if(!drag)return;
   if(drag.t==='rect'){const a=drag.p0;S.draft={x:Math.min(a.x,p.x),y:Math.min(a.y,p.y),w:Math.abs(p.x-a.x),h:Math.abs(p.y-a.y)};render()}
   else{stroke(drag.c,drag.last,p);drag.last=p;render()}
@@ -555,6 +565,7 @@ view.addEventListener('pointerup',async()=>{
   else render();
 });
 view.addEventListener('pointercancel',()=>{if(drag)cancelFirst()}); // pen/mouse cancel: undo the stroke
+view.addEventListener('pointerleave',e=>{if(e.pointerType!=='touch'&&AI.hv)aiHover(null)});
 view.addEventListener('dblclick',()=>{if(S.tool==='poly')closePoly()});
 view.addEventListener('contextmenu',e=>{if(S.tool==='ai')e.preventDefault()});
 function stroke(c,a,b){
@@ -639,9 +650,11 @@ function refreshAi(){
     AI.state==='loading'?`AI 모델 받는 중… ${aiPct()}%`:
     AI.state==='error'?'AI 모델을 받지 못했어요. 인터넷 연결을 확인하고 도구를 다시 골라 주세요.':
     AI.encoding?'그림을 분석하는 중이에요…':
-    `준비됐어요 (${AI.gpu?'WebGPU':'CPU'}). 대상을 클릭하세요.`+(L&&L.aiPts&&L.aiPts.length?` 지금 점 ${L.aiPts.length}개.`:'');
-  const has=S.aiLast&&S.aiLast.L===L;
-  document.querySelectorAll('[data-lv]').forEach(b=>{b.disabled=!has;b.setAttribute('aria-pressed',has&&L.aiLevel===+b.dataset.lv)});
+    `준비됐어요 (${AI.gpu?'WebGPU':'CPU'}). 대상 위에 올려 보고 클릭하세요.`+(L&&L.aiPts&&L.aiPts.length?` 지금 점 ${L.aiPts.length}개.`:'');
+  const has=S.aiLast&&S.aiLast.L===L,sz=['크게','중간','작게'];
+  if(AI.thFor!==(has?S.aiLast:null)){AI.thFor=has?S.aiLast:null;aiThumbs()}
+  document.querySelectorAll('[data-lv]').forEach(b=>{const k=+b.dataset.lv,m=has&&S.aiLast.masks[k];b.disabled=!has;b.setAttribute('aria-pressed',has&&(L.aiLevel||0)===k);
+    const t=`후보 ${k+1} (${sz[k]}`+(m?`, 그림의 ${(m.area/(S.W*S.H)*100).toFixed(1)}%`:'')+')';b.setAttribute('aria-label',t);b.title=t});
   $('aiNew').disabled=!(L&&L.aiPts&&L.aiPts.length);f2Sync()}
 async function aiStart(){
   if(aiBlocked()||AI.state==='loading'||AI.state==='ready')return;
@@ -679,32 +692,66 @@ function aiEncode(){
   })().catch(err=>{console.error(err);toast('그림을 분석하지 못했어요')})
     .finally(()=>{if(AI.encoding===job)AI.encoding=null;refreshAi()});
   AI.encoding=job;refreshAi();return job}
-// points [x,y,label] in image px -> three candidate masks, biggest first
-async function aiDecode(pts){
-  const T=AI.T,inp=AI.inputs,rs=inp.reshaped_input_sizes[0];
+// one decoder run: points [x,y,label] in image px -> raw SAM output (3 candidates)
+async function aiRun(pts){
+  const T=AI.T,rs=AI.inputs.reshaped_input_sizes[0];
   const input_points=new T.Tensor('float32',pts.flatMap(p=>[p[0]/S.W*rs[1],p[1]/S.H*rs[0]]),[1,1,pts.length,2]);
   const input_labels=new T.Tensor('int64',pts.map(p=>BigInt(p[2])),[1,1,pts.length]);
-  const out=await AI.model({...AI.emb,input_points,input_labels});
+  return AI.model({...AI.emb,input_points,input_labels})}
+// best-scored candidate unless it is a sliver next to the biggest (the biggest often grabs the background too)
+function aiPick(c){const big=c[0].area;let b=0;c.forEach((m,i)=>{if(m.area>=big*.1&&m.iou>c[b].iou)b=i});return b}
+// three full-size candidate masks, biggest first
+async function aiDecode(pts){
+  const inp=AI.inputs,out=await aiRun(pts),iou=out.iou_scores.data;
   const m=(await AI.proc.post_process_masks(out.pred_masks,inp.original_sizes,inp.reshaped_input_sizes))[0];
-  const HW=S.W*S.H,res=[];
-  for(let k=0;k<3;k++){const sel=m.data.subarray(k*HW,(k+1)*HW);let a=0;for(let i=0;i<HW;i++)if(sel[i])a++;res.push({sel,area:a})}
+  const W=S.W,HW=W*S.H,res=[];
+  for(let k=0;k<3;k++){const sel=m.data.subarray(k*HW,(k+1)*HW);let a=0,x0=W,y0=S.H,x1=-1,y1=-1;
+    for(let i=0;i<HW;i++)if(sel[i]){a++;const x=i%W,y=(i-x)/W;if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}
+    res.push({sel,area:a,iou:+iou[k],box:[x0,y0,x1,y1]})}
   return res.sort((a,b)=>b.area-a.area)}
+// hover preview: low-res (256px) masks only, one decode in flight, always the newest position
+const aiNear=()=>Math.max(6,S.W/120);
+function aiHover(p,label){AI.hv=p?{x:p.x,y:p.y,label}:null;if(!p){if(AI.pv){AI.pv=null;render()}return}AI.pvJob=AI.pvJob||aiHoverRun()}
+async function aiHoverRun(){
+  try{while(AI.hv){
+    const h=AI.hv,L=cur(),pts=[...(L&&L.aiPts||[]),[h.x,h.y,h.label]],q=pts[pts.length-2];
+    // nothing to show: not ready, a click is running, a "not here" point with no object, or a spot where a click only cycles
+    if(S.tool!=='ai'||!L||S.active===0||AI.state!=='ready'||!AI.emb||AI.src!==S.src||AI.encoding||S.aiBusy||(pts.length===1&&!h.label)||
+      (q&&q[2]===h.label&&S.aiLast&&S.aiLast.L===L&&Math.hypot(q[0]-h.x,q[1]-h.y)<aiNear())){if(AI.pv){AI.pv=null;render()}break}
+    const out=await aiRun(pts),[,,,lh0,lw0]=out.pred_masks.dims,d=out.pred_masks.data,rs=AI.inputs.reshaped_input_sizes[0];
+    const lw=Math.round(rs[1]/1024*lw0),lh=Math.round(rs[0]/1024*lh0),c=[];
+    for(let k=0;k<3;k++){let a=0;const o=k*lh0*lw0;for(let y=0;y<lh;y++)for(let x=0;x<lw;x++)if(d[o+y*lw0+x]>0)a++;c.push({k,area:a,iou:+out.iou_scores.data[k]})}
+    c.sort((a,b)=>b.area-a.area);const o=c[aiPick(c)].k*lh0*lw0;
+    const sm=mk(lw,lh),sg=sm.getContext('2d'),id=sg.createImageData(lw,lh);
+    for(let y=0;y<lh;y++)for(let x=0;x<lw;x++)if(d[o+y*lw0+x]>0){const i=(y*lw+x)*4;id.data[i]=id.data[i+1]=id.data[i+2]=id.data[i+3]=255}
+    sg.putImageData(id,0,0);
+    if(!AI.pc||AI.pc.width!==S.W||AI.pc.height!==S.H)AI.pc=mk(S.W,S.H);
+    const g=AI.pc.getContext('2d');g.clearRect(0,0,S.W,S.H);g.imageSmoothingEnabled=true;g.drawImage(sm,0,0,lw,lh,0,0,S.W,S.H);
+    if(AI.hv&&!S.aiBusy){AI.pv={L,src:S.src,sub:(L.aiPts&&L.aiPts.length?L.gcMode:S.selMode)==='sub'};render()}
+    if(AI.hv===h)break}
+  }catch(err){console.warn(err)}
+  finally{AI.pvJob=null}}
 async function aiClick(p,label){
   const L=cur();if(!L||S.active===0)return;
   if(aiBlocked()){toast('이 화면에서는 AI 선택을 쓸 수 없어요');return}
   if(AI.state==='off'||AI.state==='error'){aiStart();return}
   if(AI.state!=='ready'){toast('AI 모델을 받는 중이에요. 잠시만 기다려 주세요');return}
-  if(S.aiBusy)return;if(aiNeg){label=0;aiNeg=false}S.aiBusy=true;
+  if(S.aiBusy)return;if(aiNeg){label=0;aiNeg=false}
+  // same spot, same kind of point: no new information, so show the next candidate
+  const q=L.aiPts&&L.aiPts[L.aiPts.length-1];
+  if(q&&q[2]===label&&S.aiLast&&S.aiLast.L===L&&Math.hypot(q[0]-p.x,q[1]-p.y)<aiNear()){aiLevel(((L.aiLevel||0)+1)%3);return}
+  S.aiBusy=true;AI.hv=null;AI.pv=null;
   const busy=document.createElement('div');busy.className='busy';busy.textContent=AI.emb&&AI.src===S.src?'모양 찾는 중…':'그림 분석 중…';$('editWrap').appendChild(busy);
   try{
     await aiEncode();if(!AI.emb||AI.src!==S.src)return;
+    if(AI.pvJob)await AI.pvJob; // one decoder run at a time
     const fresh=!(L.aiPts&&L.aiPts.length);
     // first point of a new object, or a "not here" point with nothing to refine yet
     if(fresh&&!label){toast('먼저 대상 위를 클릭해 주세요');return}
     pushUndo(S.active,newGrp(),['mask'],false);
-    if(fresh){L.gcBase=L.mask.getContext('2d').getImageData(0,0,S.W,S.H);L.gcKeep=false;L.gcMode=S.selMode;L.rect=null;L.aiLevel=0}
+    if(fresh){L.gcBase=L.mask.getContext('2d').getImageData(0,0,S.W,S.H);L.gcKeep=false;L.gcMode=S.selMode;L.rect=null}
     L.aiPts=[...(L.aiPts||[]),[p.x,p.y,label]];
-    S.aiLast={L,masks:await aiDecode(L.aiPts)};
+    const masks=await aiDecode(L.aiPts);S.aiLast={L,masks};L.aiLevel=aiPick(masks);
     aiApply(L);
   }catch(err){console.error(err);toast('모양을 찾지 못했어요')}
   finally{S.aiBusy=false;busy.remove();refreshAi();render()}}
@@ -716,12 +763,31 @@ function aiApply(L){
   g.putImageData(out,0,0);
   if(!sub)checkOverlap(L.gcBase);
   if(typeof ptSched==='function'){L.__d=true;ptSched()}} // result lands after the await: make sure autosave sees it
-function aiEnd(){const L=cur();if(L&&L.aiPts&&L.aiPts.length){L.aiPts=[];L.gcBase=null}S.aiLast=null;refreshAi()}
-document.querySelectorAll('[data-lv]').forEach(b=>b.onclick=()=>{
-  const L=cur();if(!S.aiLast||S.aiLast.L!==L)return;
+// switch to candidate lv of the last decode, as its own undo step
+function aiLevel(lv){
+  const L=cur();if(!S.aiLast||S.aiLast.L!==L||!S.aiLast.masks[lv])return;
   const last=S.aiLast;pushUndo(S.active,newGrp(),['mask'],false);S.aiLast=last;
-  L.aiLevel=+b.dataset.lv;aiApply(L);refreshAi();render()});
+  L.aiLevel=lv;aiApply(L);refreshAi();render()}
+// thumbnails of the three candidates: crop around all of them, candidate tinted, the rest dimmed
+function aiThumbs(){
+  const last=S.aiLast;
+  document.querySelectorAll('[data-lv] canvas,[data-mlv] canvas').forEach(t=>t.getContext('2d').clearRect(0,0,t.width,t.height));
+  if(!last||!last.masks[0].area)return;
+  let [x0,y0,x1,y1]=last.masks[0].box;last.masks.forEach(m=>{if(!m.area)return;x0=Math.min(x0,m.box[0]);y0=Math.min(y0,m.box[1]);x1=Math.max(x1,m.box[2]);y1=Math.max(y1,m.box[3])});
+  const pad=Math.round(Math.max(x1-x0,y1-y0)*.08)+4;x0=Math.max(0,x0-pad);y0=Math.max(0,y0-pad);x1=Math.min(S.W-1,x1+pad);y1=Math.min(S.H-1,y1+pad);
+  const cw=x1-x0+1,ch=y1-y0+1,src=S.src.getContext('2d').getImageData(x0,y0,cw,ch).data,cc=mk(cw,ch),cg=cc.getContext('2d');
+  last.masks.forEach((m,k)=>{const id=cg.createImageData(cw,ch),d=id.data;
+    for(let y=0;y<ch;y++)for(let x=0;x<cw;x++){const i=(y*cw+x)*4,on=m.sel[(y+y0)*S.W+x+x0];
+      if(on){d[i]=src[i]*.6+40;d[i+1]=src[i+1]*.6+92;d[i+2]=src[i+2]*.6+102}else{d[i]=src[i]*.3;d[i+1]=src[i+1]*.3;d[i+2]=src[i+2]*.3}d[i+3]=255}
+    cg.putImageData(id,0,0);
+    document.querySelectorAll(`[data-lv="${k}"] canvas,[data-mlv="${k}"] canvas`).forEach(t=>{const g=t.getContext('2d'),s=Math.min(t.width/cw,t.height/ch);
+      g.drawImage(cc,(t.width-cw*s)/2,(t.height-ch*s)/2,cw*s,ch*s)})})}
+function aiEnd(){const L=cur();if(L&&L.aiPts&&L.aiPts.length){L.aiPts=[];L.gcBase=null}S.aiLast=null;AI.hv=null;AI.pv=null;refreshAi()}
+document.querySelectorAll('[data-lv]').forEach(b=>b.onclick=()=>aiLevel(+b.dataset.lv));
 $('aiNew').onclick=()=>{aiEnd();render()};
+// Shift held while hovering previews a "not here" point
+document.addEventListener('keydown',e=>{if(e.key==='Shift'&&AI.hv&&!e.repeat)aiHover(AI.hv,0)});
+document.addEventListener('keyup',e=>{if(e.key==='Shift'&&AI.hv)aiHover(AI.hv,aiNeg?0:1)});
 
 /* ---------- final masks / textures ---------- */
 function pxPerMm(){return S.W/(+$('widthMm').value||210)}
@@ -1073,7 +1139,7 @@ function f2Sync(){
   const t=S.tool,poly=t==='poly',ai=t==='ai',br=['fg','bg','paint','erase'].includes(t),mode=['poly','rect','ai'].includes(t);
   $('mPoly').hidden=!poly;$('mAi').hidden=!ai;$('mMode').hidden=!mode;$('mBrush').hidden=!br;$('mCtx').hidden=!(poly||ai||br||mode)||S.active===0;
   $('mAiNew').disabled=$('aiNew').disabled;
-  document.querySelectorAll('[data-mlv]').forEach(b=>{const o=document.querySelector(`[data-lv="${b.dataset.mlv}"]`);b.disabled=!o||o.disabled;b.setAttribute('aria-pressed',o?o.getAttribute('aria-pressed')||'false':'false')});
+  document.querySelectorAll('[data-mlv]').forEach(b=>{const o=document.querySelector(`[data-lv="${b.dataset.mlv}"]`);b.disabled=!o||o.disabled;b.setAttribute('aria-pressed',o?o.getAttribute('aria-pressed')||'false':'false');if(o)b.setAttribute('aria-label',o.getAttribute('aria-label'))});
   $('mAdd').setAttribute('aria-pressed',S.selMode==='add');$('mSub').setAttribute('aria-pressed',S.selMode==='sub');
   $('mBrushR').value=S.brush;$('mBrushOut').textContent=S.brush+'px';
   $('mName').textContent=L?`${S.active+1}번 ${L.name}`:'';
@@ -1086,7 +1152,7 @@ new ResizeObserver(()=>document.documentElement.style.setProperty('--mbar-h',($(
 // two-finger pinch / pan; capture phase so view's own handlers never see the gesture
 const wrap=$('editWrap'),tp=new Map();let g=null,gest=false,pend=null,first=null;
 function cancelFirst(){
-  if(pend){pend=null;first=null;return}
+  if(pend){clearTimeout(pend.tm);if(pend.hold)aiHover(null);pend=null;first=null;return}
   if(drag){
     if(drag.t==='brush'){const e=S.undo.pop();if(e)restoreSnap(e)}
     drag=null;S.draft=null;render();
@@ -1105,7 +1171,8 @@ wrap.addEventListener('pointerdown',e=>{
     return}
   if(!S.W||S.active===0)return;
   first={poly:S.tool==='poly'?S.poly.length:null};
-  if(f2Phone()&&(S.tool==='ai'||S.tool==='poly')){e.stopPropagation();pend={id:e.pointerId,x:e.clientX,y:e.clientY}}
+  if(S.tool==='ai'||f2Phone()&&S.tool==='poly'){e.stopPropagation();const pd=pend={id:e.pointerId,x:e.clientX,y:e.clientY};
+    if(S.tool==='ai')pd.tm=setTimeout(()=>{if(pend===pd&&!pd.moved){pd.hold=true;aiHover(pt({clientX:pd.x,clientY:pd.y}),aiNeg?0:1)}},350)}
 },true);
 wrap.addEventListener('pointermove',e=>{
   if(e.pointerType!=='touch'||!tp.has(e.pointerId))return;
@@ -1116,7 +1183,7 @@ wrap.addEventListener('pointermove',e=>{
       Z.z=Math.max(1,Math.min(6,g.z*Math.hypot(a.x-b.x,a.y-b.y)/g.d));
       Z.tx=mx-g.lx-g.ax*Z.z;Z.ty=my-g.ly-g.ay*Z.z;zApply()}
     return}
-  if(pend&&pend.id===e.pointerId&&Math.hypot(e.clientX-pend.x,e.clientY-pend.y)>10)pend.moved=true;
+  if(pend&&pend.id===e.pointerId){if(pend.hold)aiHover(pt(e),aiNeg?0:1);else if(Math.hypot(e.clientX-pend.x,e.clientY-pend.y)>10)pend.moved=true}
 },true);
 const f2Up=e=>{
   if(e.pointerType!=='touch'||!tp.has(e.pointerId))return;
@@ -1125,8 +1192,8 @@ const f2Up=e=>{
   if(e.type==='pointercancel')cancelFirst();
   const pd=pend;pend=null;first=null;
   if(pd&&pd.id===e.pointerId){
-    e.stopPropagation();
-    if(e.type==='pointercancel'||pd.moved||!S.W||S.active===0)return;
+    e.stopPropagation();clearTimeout(pd.tm);if(pd.hold)aiHover(null);
+    if(e.type==='pointercancel'||pd.moved&&!pd.hold||!S.W||S.active===0)return;
     const p=pt(e);
     if(S.tool==='ai')aiClick(p,1);
     else if(S.tool==='poly'){
