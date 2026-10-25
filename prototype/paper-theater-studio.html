@@ -107,8 +107,9 @@ button:disabled{opacity:.45;cursor:not-allowed}
 #viewBox.zm{overflow:hidden;border-radius:4px}
 #viewBox.zsp #view{cursor:grab}
 #viewBox.zpan #view{cursor:grabbing}
-#zctl{position:absolute;right:8px;bottom:8px;z-index:2;display:flex;gap:1px;background:rgba(0,0,0,.62);border-radius:6px;padding:2px;color:#fff;font-size:12px}
-#zctl button{background:transparent;color:#fff;border:0;padding:2px 8px;min-width:26px;justify-content:center;border-radius:4px;font-size:13px;line-height:1.3}
+#zctl{position:absolute;right:8px;bottom:8px;z-index:2;display:flex;gap:1px;opacity:.4;pointer-events:none;transition:opacity .15s;background:rgba(0,0,0,.62);border-radius:6px;padding:2px;color:#fff;font-size:12px}
+#zctl:hover,#zctl:focus-within{opacity:1}
+#zctl button{pointer-events:auto;background:transparent;color:#fff;border:0;padding:2px 8px;min-width:26px;justify-content:center;border-radius:4px;font-size:13px;line-height:1.3}
 #zctl button:hover{background:rgba(255,255,255,.22)}
 #zctl[hidden]{display:none}
 @media (max-width:767px){#zctl{display:none}}
@@ -645,7 +646,7 @@ async function runGrabCut(grp){
     const keep=!!L.gcBase&&L.gcKeep;pushUndo(S.active,grp);L.gcBase=base;L.gcKeep=keep;
     const out=g.getImageData(r.x,r.y,r.w,r.h);const od=out.data,bd0=base.data;
     // tidy the new shape only (hint-painted green stays, red stays out), then combine with the old mask below
-    let tid=null;if(tidyOn()){const raw=new Uint8Array(r.w*r.h);for(let y=0;y<r.h;y++)for(let x=0;x<r.w;x++){const v=md[(y+ry)*c.w+(x+rx)];raw[y*r.w+x]=v===1||v===3?1:0}tid=tidySel(raw,r.w,r.h)}
+    let tid=null;if(tidyOn()){const raw=new Uint8Array(r.w*r.h);for(let y=0;y<r.h;y++)for(let x=0;x<r.w;x++){const v=md[(y+ry)*c.w+(x+rx)];raw[y*r.w+x]=v===1||v===3?1:0}const kp=new Uint8Array(r.w*r.h);for(let y=0;y<r.h;y++)for(let x=0;x<r.w;x++)kp[y*r.w+x]=base.data[((y+r.y)*S.W+x+r.x)*4+3]>127?1:0;tid=tidySel(raw,r.w,r.h,kp)}
     for(let y=0;y<r.h;y++)for(let x=0;x<r.w;x++){const v=md[(y+ry)*c.w+(x+rx)];const on=tid?((tid[y*r.w+x]&&v!==0)||v===1):(v===1||v===3);const k=(y*r.w+x)*4;
       const b=bd0[((y+r.y)*S.W+(x+r.x))*4+3];
       od[k]=od[k+1]=od[k+2]=255;od[k+3]=on?(sub?0:255):b}
@@ -782,7 +783,8 @@ async function aiClick(p,label){
   finally{S.aiBusy=false;busy.remove();refreshAi();render()}}
 // selected candidate added onto (or in 빼기 mode cut out of) the mask as it was before this object
 function aiApply(L){
-  const sel=aiSel(S.aiLast.masks[L.aiLevel||0]),sub=L.gcMode==='sub',bd=L.gcBase.data;
+  const sub=L.gcMode==='sub',bd=L.gcBase.data,kp=new Uint8Array(S.W*S.H);for(let i=0;i<kp.length;i++)kp[i]=bd[i*4+3]>127?1:0;
+  const sel=aiSel(S.aiLast.masks[L.aiLevel||0],kp);
   const g=L.mask.getContext('2d'),out=g.createImageData(S.W,S.H),od=out.data;
   for(let i=0;i<sel.length;i++){const k=i*4;od[k]=od[k+1]=od[k+2]=255;od[k+3]=sel[i]?(sub?0:255):bd[k+3]}
   g.putImageData(out,0,0);
@@ -1205,8 +1207,7 @@ function gatherSync(){const ok=gatherOk(),t=S.tool;
   ['gather','gatherR','mGather'].forEach(id=>{const b=$(id);if(b)b.disabled=!ok});
   $('gatherR').hidden=t!=='rect'||!ok;$('mGather').hidden=t!=='rect'&&t!=='ai'}
 function gatherObj(){const L=cur(),n=S.W*S.H,o=new Uint8Array(n);
-  if(S.tool==='ai'){const sel=aiSel(S.aiLast.masks[L.aiLevel||0]);for(let i=0;i<n;i++)o[i]=sel[i]?1:0}
-  else{const d=L.mask.getContext('2d').getImageData(0,0,S.W,S.H).data,b=L.gcBase.data;for(let i=0;i<n;i++)o[i]=d[i*4+3]>127&&b[i*4+3]<=127?1:0}
+  {const d=L.mask.getContext('2d').getImageData(0,0,S.W,S.H).data,b=L.gcBase.data;for(let i=0;i<n;i++)o[i]=d[i*4+3]>127&&b[i*4+3]<=127?1:0}
   return o}
 // pixels of NOT m that cannot reach the image border (4-connected)
 function enclosed(m){const W=S.W,H=S.H,n=W*H,out=new Uint8Array(n),st=new Int32Array(n);let sp=0;
@@ -1239,16 +1240,18 @@ hook('buttons',gatherSync);hook('render',gatherSync); // GrabCut result lands vi
 /* ---------- desktop zoom ---------- */
 // wheel / Ctrl+/- zoom, Space+drag or middle-drag pan; shares Z / zApply with the phone pinch
 const zbox=$('viewBox');let zhov=false,zsp=false,zpan=null,zmx=0,zmy=0;
-const zTxt=e=>e.target.closest&&e.target.closest('input,textarea,select,[contenteditable]');
+const zTxt=e=>e.target.closest&&e.target.closest('input:not([type=checkbox],[type=radio],[type=range],[type=button],[type=file]),textarea,[contenteditable]');
 function zUi(){zbox.classList.toggle('zm',Z.z>1);$('zPct').textContent=Math.round(Z.z*100)+'%';$('zctl').hidden=!S.W}
 function zAt(nz,mx,my){ // zoom to nz keeping the image point under (mx,my) fixed
   nz=Math.max(1,Math.min(8,nz));const r=zbox.getBoundingClientRect(),ax=(mx-r.left-Z.tx)/Z.z,ay=(my-r.top-Z.ty)/Z.z;
   Z.z=nz;Z.tx=mx-r.left-ax*nz;Z.ty=my-r.top-ay*nz;zApply()}
-const zCtr=()=>{const r=zbox.getBoundingClientRect();return zhov?[zmx,zmy]:[r.left+r.width/2,r.top+r.height/2]};
+const zCtr=()=>{const r=zbox.getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2]};
+const zStale=()=>{if(typeof aiHover==='function')aiHover(null);if(S.hover){S.hover=null;render()}}; // drop hover preview / rubber band until the next mousemove
+$('zctl').addEventListener('pointerenter',zStale);
 zbox.addEventListener('wheel',e=>{
-  if(!S.W)return;e.preventDefault();
-  const dy=e.deltaY*(e.deltaMode===1?33:e.deltaMode===2?400:1);
-  zAt(Z.z*Math.exp(-dy*(e.ctrlKey?.01:.0014)),e.clientX,e.clientY)},{passive:false});
+  if(!S.W)return;const dy=e.deltaY*(e.deltaMode===1?33:e.deltaMode===2?400:1);
+  if(Z.z===1&&dy>0&&!e.ctrlKey)return; // zoom-out at 1x: let the page scroll
+  e.preventDefault();zAt(Z.z*Math.exp(-dy*(e.ctrlKey?.01:.0014)),e.clientX,e.clientY);zStale()},{passive:false});
 $('zIn').onclick=()=>zAt(Z.z*1.25,...zCtr());$('zOut').onclick=()=>zAt(Z.z/1.25,...zCtr());$('zPct').onclick=()=>zReset();
 zbox.addEventListener('pointerenter',e=>{if(e.pointerType!=='touch')zhov=true});
 zbox.addEventListener('pointerleave',e=>{if(e.pointerType!=='touch')zhov=false});
@@ -1261,15 +1264,15 @@ zbox.addEventListener('pointerdown',e=>{
   zpan={id:e.pointerId,x:e.clientX,y:e.clientY,tx:Z.tx,ty:Z.ty};zbox.classList.add('zpan')},true);
 zbox.addEventListener('pointermove',e=>{
   if(!zpan||zpan.id!==e.pointerId)return;e.stopPropagation();
-  Z.tx=zpan.tx+e.clientX-zpan.x;Z.ty=zpan.ty+e.clientY-zpan.y;zApply()},true);
+  Z.tx=zpan.tx+e.clientX-zpan.x;Z.ty=zpan.ty+e.clientY-zpan.y;zApply();zStale()},true);
 const zEnd=e=>{if(zpan&&zpan.id===e.pointerId){e.stopPropagation();zpan=null;zbox.classList.remove('zpan')}};
 zbox.addEventListener('pointerup',zEnd,true);zbox.addEventListener('pointercancel',zEnd,true);
 const zSpOff=()=>{zsp=false;zbox.classList.remove('zsp')};
 addEventListener('keydown',e=>{
-  if(e.code==='Space'&&!e.ctrlKey&&!e.metaKey&&!e.altKey){if(zsp||zhov&&S.W&&!zTxt(e)){e.preventDefault();if(e.target.tagName==='BUTTON')e.target.blur();zsp=true;zbox.classList.add('zsp')}return}
+  if(e.code==='Space'&&!e.ctrlKey&&!e.metaKey&&!e.altKey){if(zsp||zhov&&S.W&&!zTxt(e)){e.preventDefault();const a=document.activeElement;if(a&&a!==document.body&&a.blur)a.blur();zsp=true;zbox.classList.add('zsp')}return}
   if(!(e.ctrlKey||e.metaKey)||e.altKey||(e.target.closest&&e.target.closest('input[type=text],input[type=number],textarea,[contenteditable]')))return;
-  if(e.code==='Digit0'||e.code==='Numpad0'){if(zhov||Z.z>1){zReset();if(zhov)e.preventDefault()}}
-  else if(zhov&&S.W&&['Equal','NumpadAdd','Minus','NumpadSubtract'].includes(e.code)){e.preventDefault();zAt(Z.z*(/Equal|Add/.test(e.code)?1.25:.8),zmx,zmy)}
+  if(e.code==='Digit0'||e.code==='Numpad0'){if(zhov&&Z.z>1){zReset();e.preventDefault()}}
+  else if(zhov&&S.W&&['Equal','NumpadAdd','Minus','NumpadSubtract'].includes(e.code)){const up=/Equal|Add/.test(e.code);if(up||Z.z>1){e.preventDefault();zAt(Z.z*(up?1.25:.8),zmx,zmy);zStale()}}
 },true);
 addEventListener('keyup',e=>{if(e.code==='Space')zSpOff()});addEventListener('blur',zSpOff);
 const zHint=' 휠로 확대, 스페이스+끌기로 이동';
@@ -1279,8 +1282,8 @@ hook('buttons',zHintFix);hook('layers',zHintFix);hook('render',zHintFix);hook('s
 // specks and pinholes of a fresh GrabCut/AI shape are dropped at selection time (hand-cut paper can't follow them); brush/polygon are left alone
 const TIDY={minMm2:9,holeMm2:9,closeMm:.5};
 const tidyOn=()=>{const e=$('tidySel');return !e||e.checked};
-// sel: w*h, nonzero = on -> new Uint8Array 0/1. Closes hairline gaps, drops pieces < minMm2 (never the biggest), fills enclosed holes < holeMm2. No OpenCV: plain copy
-function tidySel(sel,w=S.W,h=S.H){
+// sel: w*h, nonzero = on -> new Uint8Array 0/1. Closes hairline gaps, drops pieces < minMm2 (never the biggest, nor any touching `keep` (w*h, nonzero = existing mask, dilated 1px)), fills enclosed holes < holeMm2. No OpenCV: plain copy
+function tidySel(sel,w=S.W,h=S.H,keep){
   const cv=S.cv,n=w*h,a=new Uint8Array(n);for(let i=0;i<n;i++)a[i]=sel[i]?255:0;
   if(!cv)return a.map(v=>v&1);
   const mats=[],ppm=pxPerMm(),minA=TIDY.minMm2*ppm*ppm,holeA=TIDY.holeMm2*ppm*ppm,ck=Math.round(TIDY.closeMm*ppm)|1;
@@ -1289,11 +1292,13 @@ function tidySel(sel,w=S.W,h=S.H){
     if(ck>=3){const ker=cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(ck,ck));mats.push(ker);cv.morphologyEx(m,m,cv.MORPH_CLOSE,ker)}
     const lab=new cv.Mat(),st=new cv.Mat(),ce=new cv.Mat();mats.push(lab,st,ce);
     // label src, flag components by drop(area,touchesEdge,isBiggest), clear flagged pixels of src
-    const sweep=(src,conn,drop)=>{cv.connectedComponentsWithStats(src,lab,st,ce,conn);const s=st.data32S,k=st.rows;let big=1;
+    let kd=null;if(keep){const ka=new Uint8Array(n);for(let i=0;i<n;i++)ka[i]=keep[i]?255:0;const km=cv.matFromArray(h,w,cv.CV_8UC1,ka),k3=cv.getStructuringElement(cv.MORPH_RECT,new cv.Size(3,3));mats.push(km,k3);cv.dilate(km,km,k3);kd=km.data}
+    const sweep=(src,conn,drop,kp)=>{cv.connectedComponentsWithStats(src,lab,st,ce,conn);const s=st.data32S,k=st.rows;let big=1;
       for(let j=2;j<k;j++)if(s[j*5+4]>s[big*5+4])big=j;
-      const f=new Uint8Array(k);for(let j=1;j<k;j++){const x=s[j*5],y=s[j*5+1];f[j]=drop(s[j*5+4],x===0||y===0||x+s[j*5+2]===w||y+s[j*5+3]===h,j===big)?1:0}
-      const l=lab.data32S,d=src.data;for(let i=0;i<n;i++)if(f[l[i]])d[i]=0};
-    sweep(m,8,(ar,e,bg)=>!bg&&ar<minA);
+      const l=lab.data32S,d=src.data,t=new Uint8Array(k);if(kp)for(let i=0;i<n;i++)if(kp[i]&&l[i])t[l[i]]=1;
+      const f=new Uint8Array(k);for(let j=1;j<k;j++){const x=s[j*5],y=s[j*5+1];f[j]=!t[j]&&drop(s[j*5+4],x===0||y===0||x+s[j*5+2]===w||y+s[j*5+3]===h,j===big)?1:0}
+for(let i=0;i<n;i++)if(f[l[i]])d[i]=0};
+    sweep(m,8,(ar,e,bg)=>!bg&&ar<minA,kd);
     // holes = background pieces (4-connected) that don't reach the edge
     const inv=new cv.Mat();mats.push(inv);cv.bitwise_not(m,inv);
     sweep(inv,4,(ar,e)=>!e&&ar<holeA);
@@ -1301,7 +1306,7 @@ function tidySel(sel,w=S.W,h=S.H){
     const o=new Uint8Array(n);for(let i=0;i<n;i++)o[i]=m.data[i]?1:0;return o;
   }finally{mats.forEach(x=>x.delete())}}
 // AI candidate as it will be applied (tidied once per candidate, cached)
-function aiSel(m){if(!tidyOn())return m.sel;const k=pxPerMm();if(!m.tsel||m.tk!==k){m.tsel=tidySel(m.sel);m.tk=k}return m.tsel}
+function aiSel(m,keep){if(!tidyOn()||!S.cv)return m.sel;const k=pxPerMm();if(!m.tsel||m.tk!==k){m.tsel=tidySel(m.sel,S.W,S.H,keep);m.tk=k}return m.tsel}
 /* @F1 js — 가려진 부분 채우기 */
 // multi-resolution push-pull: fills pixels where hole[p] from the others only. d=RGBA, returns RGB floats
 function f1PushPull(d,hole,w,h){
@@ -1381,7 +1386,7 @@ function cancelFirst(){
   } else if(first&&first.poly!=null&&S.tool==='poly'&&S.poly.length>first.poly){S.poly.pop();S.hover=null;render()}
   first=null}
 wrap.addEventListener('pointerdown',e=>{
-  if(e.pointerType!=='touch')return;
+  if(e.pointerType!=='touch'||e.target.closest('#zctl'))return;
   if(e.isPrimary){tp.clear();gest=false;g=null;pend=null;first=null} // drop stale pointers
   tp.set(e.pointerId,{x:e.clientX,y:e.clientY});
   if(tp.size>=2){

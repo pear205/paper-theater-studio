@@ -38,6 +38,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   for (let i = 0; i < 40; i++) await page.mouse.wheel(0, -100);
   check('zoom capped at 8x', Math.abs((await st()).z - 8) < 1e-6);
   for (let i = 0; i < 80; i++) await page.mouse.wheel(0, 100);
+  await page.evaluate(() => scrollTo(0, 0)); await page.mouse.move(cx, cy); // wheel-out at 1x scrolls the page
   const s0 = await st();
   check('wheel out returns to 1x, transform cleared', s0.z === 1 && s0.css === '' && !s0.zm, s0);
   // ctrl+wheel (trackpad pinch)
@@ -112,8 +113,72 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check('Ctrl+0 ignored in text field', (await st()).z > 1);
   await page.click('#zPct');
 
+  // ---- review fixes
+  await page.evaluate(() => { zReset(); window.__wp = []; window.__kp = []; viewBox.addEventListener('wheel', (e) => __wp.push(e.defaultPrevented)); addEventListener('keydown', (e) => __kp.push([e.code, e.defaultPrevented])); });
+  // + button zooms around the viewBox centre
+  await page.mouse.move(box.x + 20, box.y + 20);
+  const ctrPx = await page.evaluate(() => { const r = viewBox.getBoundingClientRect(); return pt({ clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }); });
+  await page.click('#zIn');
+  const ctrPx2 = await page.evaluate(() => { const r = viewBox.getBoundingClientRect(); return pt({ clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }); });
+  const zz = await st();
+  check('+ button zooms around viewBox centre (+-2px)', zz.z > 1.2 && Math.abs(ctrPx2.x - ctrPx.x) * pxScale * zz.z <= 2 && Math.abs(ctrPx2.y - ctrPx.y) * pxScale * zz.z <= 2, { ctrPx, ctrPx2, zz });
+  await page.click('#zPct');
+  // Space with a focused checkbox pans and does not toggle it
+  await page.mouse.move(cx, cy); for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -100);
+  const cb0 = await page.evaluate(() => { const c = document.getElementById('tidySel'); c.focus(); return { checked: c.checked, tx: Z.tx, focused: document.activeElement === c }; });
+  await page.keyboard.down('Space');
+  await page.mouse.move(cx, cy); await page.mouse.down(); await page.mouse.move(cx + 40, cy + 30, { steps: 4 }); await page.mouse.up(); await page.keyboard.up('Space');
+  const cb1 = await page.evaluate(() => ({ checked: document.getElementById('tidySel').checked, tx: Z.tx, focused: document.activeElement === document.getElementById('tidySel') }));
+  check('Space with focused checkbox: pans, no toggle, blurred', cb0.focused && cb1.checked === cb0.checked && cb1.tx !== cb0.tx && !cb1.focused, { cb0, cb1 });
+  await page.click('#zPct');
+  // wheel-out at 1x is not prevented (page scrolls); wheel-in is
+  await page.mouse.move(cx, cy);
+  await page.evaluate(() => { __wp.length = 0; });
+  await page.mouse.wheel(0, 100); await sleep(50);
+  const wOut = await page.evaluate(() => __wp.slice());
+  await page.evaluate(() => scrollTo(0, 0)); await page.mouse.move(cx, cy);
+  await page.mouse.wheel(0, -100); await sleep(50);
+  const wIn = await page.evaluate(() => __wp.slice());
+  check('wheel-down at 1x not prevented; wheel-up prevented', wOut.length >= 1 && wOut.every((v) => v === false) && wIn[wIn.length - 1] === true, { wOut, wIn });
+  await page.click('#zPct');
+  // Ctrl+0 at 1x left to the browser; Ctrl+0 when zoomed over the canvas resets and is prevented
+  await page.mouse.move(cx, cy);
+  await page.evaluate(() => { __kp.length = 0; });
+  await page.keyboard.press('Control+0');
+  check('Ctrl+0 at 1x not prevented', await page.evaluate(() => __kp.filter((k) => k[0] === 'Digit0').every((k) => k[1] === false)));
+  await page.keyboard.press('Control+Minus');
+  check('Ctrl+- at 1x not prevented', await page.evaluate(() => __kp.filter((k) => k[0] === 'Minus').every((k) => k[1] === false)) && (await st()).z === 1);
+  await page.mouse.move(5, 450); await page.evaluate(() => { __kp.length = 0; }); await page.keyboard.press('Control+Equal');
+  check('Ctrl+= off the canvas ignored', await page.evaluate(() => __kp.filter((k) => k[0] === 'Equal').every((k) => k[1] === false)) && (await st()).z === 1);
+  await page.mouse.move(cx, cy); await page.keyboard.press('Control+Equal'); await page.evaluate(() => { __kp.length = 0; }); await page.keyboard.press('Control+0');
+  check('Ctrl+0 when zoomed over canvas: reset + prevented', (await st()).z === 1 && await page.evaluate(() => __kp.filter((k) => k[0] === 'Digit0').every((k) => k[1] === true)));
+  // wheel zoom clears stale hover state
+  await page.evaluate(() => { S.tool = 'poly'; S.poly = [{ x: 50, y: 50 }]; S.hover = { x: 90, y: 90 }; });
+  await page.mouse.move(cx, cy); await page.mouse.wheel(0, -100); await sleep(30);
+  check('wheel zoom clears polygon rubber band', await page.evaluate(() => S.hover === null));
+  await page.evaluate(() => { S.poly = []; S.tool = 'rect'; zReset(); render(); });
+  await page.evaluate(() => document.activeElement.blur()); await page.mouse.move(cx, cy); await sleep(400);
+  check('zoom control is semi-transparent, only buttons take pointer events', await page.evaluate(() => getComputedStyle(zctl).opacity < 0.6 && getComputedStyle(zctl).pointerEvents === 'none' && getComputedStyle(zIn).pointerEvents === 'auto'), await page.evaluate(() => [getComputedStyle(zctl).opacity, getComputedStyle(zctl).pointerEvents, getComputedStyle(zIn).pointerEvents]));
+
   check('no page errors (desktop)', errors.length === 0, errors);
   await ctx.close();
+
+  // ---- touch tap on the zoom control with a click tool adds no point (tablet width keeps the control)
+  const tctx = await browser.newContext({ viewport: { width: 1000, height: 800 }, hasTouch: true });
+  const tp = await tctx.newPage();
+  tp.on('pageerror', (e) => errors.push('touch pageerror: ' + e.message));
+  await tp.goto(url); await ready(tp);
+  const tcdp = await tctx.newCDPSession(tp);
+  await tp.evaluate(() => { S.active = 1; renderLayers(); S.tool = 'ai'; window.__ac = 0; aiClick = function () { __ac++; }; render(); });
+  const zc = await tp.evaluate(() => { const r = document.getElementById('zIn').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+  await tcdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: zc[0], y: zc[1], id: 0 }] });
+  await tcdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await sleep(500);
+  check('touch tap on #zctl (AI tool): no AI point', await tp.evaluate(() => window.__ac === 0 && (!cur().aiPts || cur().aiPts.length === 0)));
+  await tp.evaluate(() => { S.tool = 'poly'; });
+  await tcdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: zc[0], y: zc[1], id: 0 }] });
+  await tcdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await sleep(300);
+  check('touch tap on #zctl (polygon tool): no polygon point', await tp.evaluate(() => S.poly.length === 0));
+  await tctx.close();
 
   // ---- phone: pinch still works, no desktop control
   const pctx = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });

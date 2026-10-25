@@ -84,6 +84,18 @@ const stats = (page) => page.evaluate(() => {
   check('ai: no small specks/holes left', ai.on.specks <= 1 && ai.on.holes === 0, ai.on);
   check('ai: main area within 5%', Math.abs(ai.on.big - ai.off.big) / ai.off.big < 0.05, ai);
 
+  // ---- a small piece touching the existing mask is kept (keep mask), a lone one is dropped
+  const adj = await page.evaluate(() => {
+    const W = S.W, H = S.H, sel = new Uint8Array(W * H), keep = new Uint8Array(W * H);
+    for (let y = 100; y < 300; y++) for (let x = 100; x < 300; x++) sel[y * W + x] = 1;
+    for (let y = 100; y < 103; y++) for (let x = 400; x < 403; x++) sel[y * W + x] = 1;   // speck next to the old mask
+    for (let y = 100; y < 103; y++) for (let x = 403; x < 420; x++) keep[y * W + x] = 1;  // old mask touches it
+    for (let y = 500; y < 503; y++) for (let x = 400; x < 403; x++) sel[y * W + x] = 1;   // lone speck
+    const a = tidySel(sel, W, H), b = tidySel(sel, W, H, keep);
+    return { plain: [a[101 * W + 401], a[501 * W + 401]], kept: [b[101 * W + 401], b[501 * W + 401]], big: b[200 * W + 200] };
+  });
+  check('tidySel: piece touching keep is kept, lone speck dropped', adj.plain[0] === 0 && adj.kept[0] === 1 && adj.kept[1] === 0 && adj.big === 1, adj);
+
   // ---- autosave keeps the toggle
   await setTidy(false);
   const kept = await page.evaluate(async () => {
