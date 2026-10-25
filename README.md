@@ -32,6 +32,20 @@
 | `reference/e2e/` | Playwright 동작 확인 스크립트 |
 | `CLAUDE.md` | Claude Code용 개발 문서 (기능, 알려진 버그, 로드맵, 추천 구조) |
 
+## 라이선스
+
+[MIT](LICENSE) 라이선스예요. 누구나 무료로 쓰고, 고치고, 다시 배포하고, 상업적으로도 쓸 수 있어요. 저작권 표시와 라이선스 문구만 남겨 주세요.
+
+앱이 실행할 때 CDN에서 불러오는 라이브러리와 AI 모델은 이 저장소에 들어 있지 않고, 각자의 라이선스를 따라요. 모두 무료로 쓸 수 있는 라이선스예요.
+
+| 이름 | 용도 | 라이선스 |
+|---|---|---|
+| [OpenCV.js](https://www.npmjs.com/package/@techstark/opencv-js) (`@techstark/opencv-js`) | 경계 찾기, 단순화, 채우기 | Apache-2.0 |
+| [jsPDF](https://github.com/parallax/jsPDF) | PDF 도안 | MIT |
+| [Transformers.js](https://github.com/huggingface/transformers.js) (`@huggingface/transformers`) | AI 모델 실행 | Apache-2.0 |
+| [SlimSAM](https://huggingface.co/Xenova/slimsam-77-uniform) (`Xenova/slimsam-77-uniform`) | AI 클릭 선택 | Apache-2.0 |
+| [Depth Anything V2 Small](https://huggingface.co/onnx-community/depth-anything-v2-small) | 깊이 자동 나누기 | Apache-2.0 |
+
 ## 다음 단계
 
 알려진 버그와 로드맵은 `CLAUDE.md`에 정리돼 있어요. Claude Code에서 이 폴더를 열고 "CLAUDE.md 읽고 로드맵 1번부터 진행해줘"라고 시작하면 돼요.

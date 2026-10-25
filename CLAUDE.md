@@ -67,7 +67,8 @@
 
 ## 형상 관리·배포
 
-- 이 폴더가 공개 git 저장소 `pear205/paper-theater-studio`(main)다. 2026-10-25부터 프로젝트 전체를 오픈으로 관리한다.
+- 이 폴더가 공개 git 저장소 `pear205/paper-theater-studio`(main)다. 2026-10-25부터 프로젝트 전체를 오픈으로 관리한다. 라이선스는 MIT(`LICENSE`, 저작권자 pear205).
+- 새 라이브러리나 AI 모델을 넣을 때는 무료로 쓸 수 있는 라이선스인지 확인하고 README의 라이선스 표에 추가한다. 예: Depth Anything V2는 Small만 Apache-2.0이고, Base·Large는 비상업(CC-BY-NC-4.0)이라 쓰지 않는다.
 - GitHub Pages가 main 브랜치 루트를 그대로 제공한다. 루트 `index.html`은 `prototype/paper-theater-studio.html`로 넘겨 준다. **main에 push하면 1분 안에 https://pear205.github.io/paper-theater-studio/ 에 반영된다.**
 - 올리지 않는 것: `samples/`(저작권 있는 테스트 그림)와 그걸로 만든 `prototype/work/*.png`, 병렬 작업 사본, 도구 상태(`.omc/`, `.claude/settings.local.json`). 새 테스트 그림도 `samples/`에 둔다.
 - 폴더가 구글 드라이브 안이라, 다른 PC에서 같은 폴더를 동시에 쓰면 `.git`이 동기화 충돌로 깨질 수 있다. 다른 곳에서는 `git clone`으로 따로 받아 쓴다.
