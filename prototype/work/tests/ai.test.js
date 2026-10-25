@@ -1,4 +1,4 @@
-// AI click select: hover preview, candidate thumbnails, click cycling, touch hold. Downloads SlimSAM (~14MB) on first run.
+// AI click select: hover preview, candidate thumbnails, click cycling (inside the object), touch hold. Multi-object cases: ai-multi.test.js. Downloads SlimSAM (~14MB) on first run.
 // usage: node ai.test.js [url]   (sample1 is used when samples/sample1.webp exists, otherwise the built-in rabbit)
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || 'playwright');
 const path = require('path');
@@ -138,11 +138,16 @@ const toScreen = (page, x, y) => page.evaluate(([x, y]) => { const r = view.getB
   const lvNow = await mp.evaluate(() => cur().aiLevel);
   await mp.evaluate((o) => document.querySelector(`#mAi [data-mlv="${o}"]`).click(), (lvNow + 1) % 3);
   check('phone: bar thumbnail switches candidate', (await maskCount(mp)) !== pb);
-  // quick tap still commits on release (refines the same object)
+  // plain tap inside the object cycles the candidate; with the "점 더하기" toggle the tap refines
   const [qx, qy] = await toScreen(mp, P[0] + 15, P[1] + 10);
+  const lv0 = await mp.evaluate(() => cur().aiLevel);
   await touch('touchStart', [[qx, qy]]); await sleep(60); await touch('touchEnd', []);
   await mp.waitForFunction(() => !S.aiBusy, null, { timeout: 30000 });
-  check('phone: tap adds a point', await mp.evaluate(() => cur().aiPts.length === 2));
+  check('phone: tap inside the object cycles, no new point', await mp.evaluate((l) => cur().aiPts.length === 1 && cur().aiLevel === (l + 1) % 3, lv0));
+  await mp.evaluate(() => document.getElementById('mPos').click());
+  await touch('touchStart', [[qx, qy]]); await sleep(60); await touch('touchEnd', []);
+  await mp.waitForFunction(() => !S.aiBusy, null, { timeout: 30000 });
+  check('phone: tap with 점 더하기 adds a point', await mp.evaluate(() => cur().aiPts.length === 2 && cur().aiPts[1][2] === 1));
   await mp.screenshot({ path: path.join(OUT, 'ai-phone.png') });
   check('no page errors', errors.length === 0, errors);
   await browser.close();
