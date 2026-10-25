@@ -293,6 +293,23 @@ button:disabled{opacity:.45;cursor:not-allowed}
         <div class="field"><span>인쇄할 그림</span><select id="kitPrint" aria-label="인쇄할 그림"><option value="0" selected>원본</option><option value="1">키트 스타일</option></select></div>
       </div>
 
+      <div class="card" id="guideCard">
+        <h2>경계 찾기용 그림</h2>
+        <p class="note">인쇄는 원본 그림으로 하고, 경계는 따로 만든 단순한 그림에서 찾고 싶을 때 쓰세요. 예를 들어 AI에게 "같은 구도로 단순한 그림책 스타일로 다시 그려 줘"라고 한 그림이에요. 범위 지정으로 경계를 찾을 때 이 그림을 먼저 써요. AI 선택은 단순한 그림에서 오히려 물체를 크게 잘못 잡아서 원본을 쓰고, 깊이 나누기도 원본을 써요. 인쇄에는 쓰지 않아요.</p>
+        <div class="row"><button class="primary" id="guideAdd">그림 넣기</button><button id="guideDel" disabled>빼기</button></div>
+        <input type="file" id="guideFile" accept="image/*" hidden>
+        <p class="note" id="guideState" aria-live="polite" hidden></p>
+        <label class="row"><input id="guideShow" type="checkbox" disabled> 원본 위에 겹쳐 보기</label>
+        <div class="field"><span>겹친 그림 진하기</span><output id="guideAlphaOut">50</output><input id="guideAlpha" type="range" min="10" max="90" step="5" value="50" aria-label="겹친 그림 진하기"></div>
+        <div class="field"><span>가로 위치 (px)</span><span class="val"><output id="guideTxOut">0</output></span>
+          <span class="row" style="grid-column:1/-1"><button data-gd="tx" data-d="-10" disabled>−10</button><button data-gd="tx" data-d="-1" disabled>−1</button><button data-gd="tx" data-d="1" disabled>+1</button><button data-gd="tx" data-d="10" disabled>+10</button></span></div>
+        <div class="field"><span>세로 위치 (px)</span><span class="val"><output id="guideTyOut">0</output></span>
+          <span class="row" style="grid-column:1/-1"><button data-gd="ty" data-d="-10" disabled>−10</button><button data-gd="ty" data-d="-1" disabled>−1</button><button data-gd="ty" data-d="1" disabled>+1</button><button data-gd="ty" data-d="10" disabled>+10</button></span></div>
+        <div class="field"><span>크기 (%)</span><span class="val"><output id="guideSOut">100</output></span>
+          <span class="row" style="grid-column:1/-1"><button data-gd="s" data-d="-5" disabled>−5</button><button data-gd="s" data-d="-1" disabled>−1</button><button data-gd="s" data-d="1" disabled>+1</button><button data-gd="s" data-d="5" disabled>+5</button></span></div>
+        <div class="row"><button id="guideAuto" disabled>자동 맞추기</button></div>
+      </div>
+
       <div class="card">
         <h2>크기와 구조</h2>
         <div class="field"><span>완성 가로 크기</span><span class="val"><input id="widthMm" class="num" type="number" min="60" max="280" value="210"> mm</span></div>
@@ -1421,7 +1438,7 @@ $('brush').addEventListener('input',()=>{clearTimeout(bcTm);bcTm=setTimeout(()=>
 /* ---------- kit style ---------- */
 // flat-colour "kit" look of the picture: edges are always found on it (segSrc); print/display uses it when 인쇄할 그림 = 키트 스타일 (printSrc). S.src stays the original.
 const KIT={tok:0,job:null,timer:0,first:false,failed:false,ms:0,str:0,k:0};
-function segSrc(){return S.kit||S.src}
+function segSrc(){return S.guide||S.kit||S.src}
 // AI (SAM) reads object shapes and does worse on the flattened kit picture, so it always sees the original
 function aiSrc(){return S.src}
 function printSrc(){return $('kitPrint').value==='1'&&S.kit?S.kit:S.src}
@@ -1529,6 +1546,110 @@ function cutPolys(arr,ppm){
     for(let i=0;i<cs.size();i++){const c=cs.get(i);try{if(cv.contourArea(c)<20)continue;const ap=new cv.Mat();try{cv.approxPolyDP(c,ap,0.9,true);out.push(smoothPoly(c,ap,ppm))}finally{ap.delete()}}finally{c.delete()}}
   }finally{m.delete();cs.delete();hi.delete()}
   return out}
+
+/* ---------- guide image ---------- */
+// a separate simplified picture (e.g. an AI redraw) used only to find edges (segSrc). Print/display never uses it.
+// S.guideRaw = the upload, S.guideH = raw->frame matrix (aspect fit or ORB homography, row-major 3x3), S.guideT = hand adjustment {tx,ty,s} on top, S.guide = raw warped into the W x H frame
+const GD={tok:0,blob:null,max:2000,work:800};
+const gdMul=(a,b)=>{const r=new Array(9);for(let i=0;i<3;i++)for(let j=0;j<3;j++)r[i*3+j]=a[i*3]*b[j]+a[i*3+1]*b[3+j]+a[i*3+2]*b[6+j];return r};
+function gdSay(t,warn){const e=$('guideState');e.textContent=t||'';e.hidden=!t;e.classList.toggle('warn',!!warn)}
+// scale to cover the frame, centred
+function gdAspect(rw,rh){const s=Math.max(S.W/rw,S.H/rh);return [s,0,(S.W-rw*s)/2,0,s,(S.H-rh*s)/2,0,0,1]}
+// final raw->frame matrix = hand adjustment (about the frame centre) after the base matrix
+function gdMatrix(){const T=S.guideT,cx=S.W/2,cy=S.H/2;return gdMul([T.s,0,(1-T.s)*cx+T.tx,0,T.s,(1-T.s)*cy+T.ty,0,0,1],S.guideH)}
+function gdWarp(){
+  const W=S.W,H=S.H,raw=S.guideRaw,M=gdMatrix(),c=mk(W,H),g=c.getContext('2d');
+  g.drawImage(S.src,0,0); // where the picture does not reach, the original shows through
+  if(Math.abs(M[6])<1e-9&&Math.abs(M[7])<1e-9){g.imageSmoothingQuality='high';g.setTransform(M[0],M[3],M[1],M[4],M[2],M[5]);g.drawImage(raw,0,0);g.setTransform(1,0,0,1,0,0)}
+  else{const cv=S.cv,mats=[];
+    try{const src=cv.matFromImageData(raw.getContext('2d').getImageData(0,0,raw.width,raw.height)),dst=new cv.Mat(),Mm=cv.matFromArray(3,3,cv.CV_64F,M);mats.push(src,dst,Mm);
+      cv.warpPerspective(src,dst,Mm,new cv.Size(W,H),cv.INTER_LINEAR,cv.BORDER_CONSTANT,new cv.Scalar(0,0,0,0));
+      const t=mk(W,H);t.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(dst.data),W,H),0,0);g.drawImage(t,0,0)}
+    finally{mats.forEach(m=>m.delete())}}
+  S.guide=c}
+// ORB + ratio test + RANSAC homography between the aspect-fitted upload and the original. -> {H (raw->frame) or null, inliers, how}
+function gdAlign(){
+  const cv=S.cv,W=S.W,H=S.H,raw=S.guideRaw,A=gdAspect(raw.width,raw.height);
+  if(!cv||!cv.ORB||!cv.BFMatcher||!cv.findHomography)return {H:null,inliers:0,how:'aspect'};
+  const k=Math.min(1,GD.work/Math.max(W,H)),w=Math.round(W*k),h=Math.round(H*k),mats=[];
+  const grey=(img,m)=>{const c=mk(w,h),g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,w,h);g.setTransform(k*m[0],k*m[3],k*m[1],k*m[4],k*m[2],k*m[5]);g.drawImage(img,0,0);
+    const a=cv.matFromImageData(g.getImageData(0,0,w,h)),o=new cv.Mat();mats.push(a,o);cv.cvtColor(a,o,cv.COLOR_RGBA2GRAY);return o};
+  try{
+    const g1=grey(raw,A),g2=grey(S.src,[1,0,0,0,1,0,0,0,1]),orb=new cv.ORB(1500),bf=new cv.BFMatcher(cv.NORM_HAMMING,false),mm=new cv.DMatchVectorVector();
+    const k1=new cv.KeyPointVector(),k2=new cv.KeyPointVector(),d1=new cv.Mat(),d2=new cv.Mat(),none=new cv.Mat();mats.push(orb,bf,mm,k1,k2,d1,d2,none);
+    orb.detectAndCompute(g1,none,k1,d1);orb.detectAndCompute(g2,none,k2,d2);
+    if(d1.rows<10||d2.rows<10)return {H:null,inliers:0,how:'orb'};
+    bf.knnMatch(d1,d2,mm,2);
+    const P=[],Q=[];
+    for(let i=0;i<mm.size();i++){const m=mm.get(i);try{if(m.size()<2)continue;const a=m.get(0),b=m.get(1);
+      if(a.distance<.75*b.distance){const p=k1.get(a.queryIdx).pt,q=k2.get(a.trainIdx).pt;P.push(p.x,p.y);Q.push(q.x,q.y)}}finally{m.delete()}}
+    const n=P.length/2;if(n<8)return {H:null,inliers:0,how:'orb'};
+    const ps=cv.matFromArray(n,1,cv.CV_32FC2,P),qs=cv.matFromArray(n,1,cv.CV_32FC2,Q),ms=new cv.Mat();mats.push(ps,qs,ms);
+    const hm=cv.findHomography(ps,qs,cv.RANSAC,3,ms);
+    if(!hm||hm.rows!==3)return {H:null,inliers:0,how:'orb'};
+    mats.push(hm);
+    let inl=0;for(let i=0;i<ms.data.length;i++)if(ms.data[i])inl++;
+    // working-size matrix -> full size: D^-1 * H * D
+    const h0=Array.from(hm.data64F),D=[k,0,0,0,k,0,0,0,1],Di=[1/k,0,0,0,1/k,0,0,0,1],H1=gdMul(Di,gdMul(h0,D)),s=H1[8]||1;for(let i=0;i<9;i++)H1[i]/=s;
+    // degenerate? scale 0.5-2, no mirror, little shear, little perspective, not thrown off the frame
+    const a=H1[0],b=H1[1],c=H1[3],d=H1[4],det=a*d-b*c,F=a*a+b*b+c*c+d*d,s1=Math.sqrt((F+Math.sqrt(Math.max(0,F*F-4*det*det)))/2),s2=Math.abs(det)/(s1||1),sc=Math.sqrt(Math.abs(det));
+    const sane=det>0&&sc>=.5&&sc<=2&&s1/(s2||1e-9)<=1.3&&Math.abs(H1[6])*W<.3&&Math.abs(H1[7])*H<.3&&Math.abs(H1[2])<.5*W&&Math.abs(H1[5])<.5*H;
+    return {H:sane&&inl>=25?gdMul(H1,A):null,inliers:inl,how:'orb'}
+  }finally{mats.forEach(m=>m.delete())}}
+// base matrix + status text; the hand adjustment starts over
+function gdAuto(){
+  const raw=S.guideRaw;S.guideT={tx:0,ty:0,s:1};S.guideH=gdAspect(raw.width,raw.height);
+  let r;try{r=gdAlign()}catch(e){console.error(e);r={H:null,inliers:0,how:'error'}}
+  if(r.H){S.guideH=r.H;gdSay(`위치를 맞췄어요 (맞은 점 ${r.inliers}개)`)}
+  else if(r.how==='aspect')gdSay('이 화면에서는 자동 맞추기를 쓸 수 없어요. 가로세로 비율로만 맞췄으니 겹쳐 보고 손으로 맞춰 주세요',true);
+  else gdSay('자동으로 못 맞췄어요. 겹쳐 보고 손으로 맞춰 주세요',true);
+  S.guideHow=r.H?'orb':(r.how==='aspect'?'aspect':'fail');S.guideInl=r.inliers}
+// refresh S.guide, controls and the editor; save soon
+function gdApply(){gdWarp();S.guideV=(S.guideV|0)+1;gdSync();render();ptSched()}
+function gdSync(){
+  const on=!!S.guideRaw,T=S.guideT||{tx:0,ty:0,s:1};
+  document.querySelectorAll('#guideCard [data-gd],#guideDel,#guideAuto,#guideShow').forEach(e=>{e.disabled=!on});
+  $('guideTxOut').textContent=T.tx;$('guideTyOut').textContent=T.ty;$('guideSOut').textContent=Math.round(T.s*100);
+  $('guideAlphaOut').textContent=$('guideAlpha').value}
+function gdClear(){GD.tok++;S.guide=S.guideRaw=S.guideH=S.guideT=null;S.guideHow='';GD.blob=null;$('guideShow').checked=false;gdSay('');gdSync()}
+async function gdLoad(f){
+  const tok=++GD.tok;
+  try{
+    if(!f||!f.size||!S.W)throw new Error('empty');
+    const im=await ptImg(f),sc=Math.min(1,GD.max/Math.max(im.naturalWidth,im.naturalHeight));
+    if(!im.naturalWidth||!im.naturalHeight)throw new Error('size');
+    const raw=mk(Math.max(1,Math.round(im.naturalWidth*sc)),Math.max(1,Math.round(im.naturalHeight*sc)));raw.getContext('2d').drawImage(im,0,0,raw.width,raw.height);
+    if(tok!==GD.tok)return;
+    S.guideRaw=raw;GD.blob=ptBlob(raw);gdSay('맞추는 중…');gdSync();await yieldUi();
+    if(tok!==GD.tok)return;
+    gdAuto();$('guideShow').checked=true;gdApply(); // overlay on, so the fit can be checked
+    toast('경계 찾기용 그림을 넣었어요')
+  }catch(e){console.error(e);if(tok===GD.tok){gdSay(S.guideRaw?'이 파일은 그림으로 열 수 없어요. 앞서 넣은 그림을 그대로 쓰고 있어요':'이 파일은 그림으로 열 수 없어요. 다른 그림을 골라 주세요',true);toast('경계 찾기용 그림을 열 수 없어요')}}}
+$('guideAdd').onclick=()=>$('guideFile').click();
+$('guideFile').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)gdLoad(f)};
+$('guideDel').onclick=()=>{gdClear();render();ptSched();toast('경계 찾기용 그림을 뺐어요')};
+$('guideAuto').onclick=async()=>{if(!S.guideRaw)return;gdSay('맞추는 중…');await yieldUi();if(!S.guideRaw)return;gdAuto();gdApply()};
+document.querySelectorAll('#guideCard [data-gd]').forEach(b=>b.onclick=()=>{
+  if(!S.guideRaw)return;const T=S.guideT,k=b.dataset.gd,d=+b.dataset.d;
+  if(k==='s')T.s=Math.min(2,Math.max(.5,Math.round(T.s*100+d)/100));else T[k]+=d;
+  $('guideShow').checked=true;gdApply()});
+$('guideShow').addEventListener('change',()=>{render();ptSched()});
+$('guideAlpha').addEventListener('input',()=>{$('guideAlphaOut').textContent=$('guideAlpha').value;render();ptSched()});
+hook('setup',gdClear);
+hook('render',()=>{if(!S.guide||!$('guideShow').checked||LP.on)return;vctx.save();vctx.globalAlpha=$('guideAlpha').value/100;vctx.drawImage(S.guide,0,0);vctx.restore()});
+// save / restore (called from the autosave + file code)
+function guideSnap(){return S.guideRaw?{blob:GD.blob,H:S.guideH.slice(),T:{...S.guideT},show:$('guideShow').checked,alpha:+$('guideAlpha').value,how:S.guideHow,inl:S.guideInl|0}:null}
+async function guideRec(g,cv){return g?{raw:await cv(await g.blob),H:g.H,T:g.T,show:g.show,alpha:g.alpha,how:g.how,inl:g.inl}:null}
+async function guideRestore(g){
+  if(!g)return;
+  try{
+    const num=a=>Array.isArray(a)&&a.every(Number.isFinite);
+    if(!g.raw||!num(g.H)||g.H.length!==9||!g.T||!num([g.T.tx,g.T.ty,g.T.s])||g.T.s<.5||g.T.s>2)throw new Error('format');
+    const im=await ptImg(g.raw),raw=mk(im.naturalWidth,im.naturalHeight);raw.getContext('2d').drawImage(im,0,0);
+    GD.tok++;S.guideRaw=raw;GD.blob=g.raw instanceof Blob?Promise.resolve(g.raw):ptBlob(raw);S.guideH=g.H.slice();S.guideT={tx:g.T.tx,ty:g.T.ty,s:g.T.s};S.guideHow=g.how||'';S.guideInl=g.inl|0;
+    $('guideAlpha').value=Math.min(90,Math.max(10,+g.alpha||50));$('guideShow').checked=!!g.show;
+    gdWarp();S.guideV=(S.guideV|0)+1;gdSay('저장해 둔 경계 찾기용 그림을 불러왔어요');gdSync()
+  }catch(e){console.error(e);gdClear()}}
 
 /* @F1 js — 가려진 부분 채우기 */
 // multi-resolution push-pull: fills pixels where hole[p] from the others only. d=RGBA, returns RGB floats
@@ -1680,10 +1801,11 @@ async function ptTick(){
 }
 // forFile: masks/image as dataURL strings (JSON); otherwise Blobs for IndexedDB. Only layers with a dirty flag are re-encoded.
 async function ptCollect(forFile){
-  const layers=S.layers.slice(),srcP=PT.src; // snapshot before any await
+  const layers=S.layers.slice(),srcP=PT.src,gd=guideSnap(); // snapshot before any await
   const out={version:1,app:'paper-theater',savedAt:Date.now(),W:S.W,H:S.H,settings:ptSettings(),active:S.active,layers:[]};
   const cv=forFile?b=>new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result);f.readAsDataURL(b)}):async b=>b;
   out.src=await cv(await srcP);
+  out.guide=await guideRec(gd,cv);
   for(const L of layers){
     if(!L.__png||L.__d){L.__d=false;L.__png=await ptBlob(L.mask)}
     out.layers.push({name:L.name,z:L.z,grow:L.grow||0,mask:await cv(L.__png)});
@@ -1705,6 +1827,7 @@ async function ptRestore(rec){
     const st=rec.settings||{};PT_IDS.forEach(id=>{if(!(id in st))return;const e=$(id);if(e.type==='checkbox')e.checked=!!st[id];else e.value=st[id]});
     $('smoothOut').textContent=$('smooth').value;
     $('kitStrOut').textContent=$('kitStr').value;kitStart();
+    await guideRestore(rec.guide);
     S.active=Math.max(0,Math.min(+rec.active||0,S.layers.length-1));S.tool='rect';S.cutDirty=true;
     renderLayers();render();updateSize();refreshButtons();if(S.view==='3d')build3D();
   }finally{PT.keepSrc=null;PT.busy=false;PT.sig=ptSig()}
