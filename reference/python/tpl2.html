@@ -1,0 +1,66 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>페이퍼시어터 예상도 v2</title>
+<style>
+:root{--bg:#f3efe8;--fg:#2b2622;--muted:#7a7068;--card:#fff;--accent:#c8643b}
+@media (prefers-color-scheme:dark){:root{--bg:#1d1b19;--fg:#eee8e1;--muted:#a59b91;--card:#2a2725;--accent:#e08a5f}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+header{padding:18px 16px 4px;max-width:960px;margin:auto}h1{font-size:20px;margin:0 0 4px}p.sub{margin:0;color:var(--muted);font-size:13px}
+#stage{height:min(72vh,640px);perspective:1800px;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:grab;touch-action:none}
+#box{position:relative;width:var(--w);height:var(--h);transform-style:preserve-3d;transition:transform .05s}
+.L{position:absolute;inset:0;background-size:100% 100%;transform-style:preserve-3d}
+.L.cut{filter:drop-shadow(0 6px 6px rgba(0,0,0,.35))}
+.clip{position:absolute;background:#f2a9b8;border:1px solid #d98597;border-radius:2px;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.frame{position:absolute;inset:calc(var(--m)*-1);border:var(--m) solid #efe6d6;box-shadow:inset 0 0 0 2px rgba(0,0,0,.08),0 2px 8px rgba(0,0,0,.2);border-radius:3px}
+.tag{position:absolute;right:-8px;top:8px;transform:translateX(100%);font-size:13px;background:var(--card);color:var(--fg);padding:3px 8px;border-radius:6px;white-space:nowrap;opacity:0;transition:opacity .2s;box-shadow:0 1px 4px rgba(0,0,0,.2)}
+body.ex .tag{opacity:1}
+.ctrl{max-width:960px;margin:auto;padding:4px 16px 24px;display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;font-size:14px}
+.ctrl button{border:1px solid var(--muted);background:var(--card);color:var(--fg);padding:7px 12px;border-radius:8px;font-size:14px;cursor:pointer}
+.ctrl label{display:flex;gap:8px;align-items:center}input[type=range]{width:160px;accent-color:var(--accent)}
+table{border-collapse:collapse;font-size:13px;margin:0 16px 30px;}.wrap{max-width:960px;margin:auto}td,th{padding:5px 10px;border-bottom:1px solid rgba(128,128,128,.3);text-align:left}
+</style></head><body>
+<header><h1>페이퍼시어터 예상도</h1><p class="sub">A5(21×14cm) · 5레이어 · 총 깊이 2.5cm · 모서리 클립 고정 · 드래그해서 돌려보세요</p></header>
+<div id="stage"><div id="box"></div></div>
+<div class="ctrl">
+<button data-v="front">정면</button><button data-v="angle">비스듬히</button><button data-v="side">펼쳐서 보기</button>
+<label>레이어 펼치기 <input id="ex" type="range" min="1" max="6" step="0.1" value="1"></label>
+<label><input id="walls" type="checkbox" checked> 클립 보이기</label>
+</div>
+<div class="wrap"><table><tr><th>레이어</th><th>뒤판에서 거리</th></tr><tbody id="tb"></tbody></table></div>
+<script>
+const U=__URIS__,Z=__Z__,N=__NAMES__;
+const box=document.getElementById('box');
+let W=Math.min(760,innerWidth-40),H=W*0.672,PX=W/210,M=PX*6;
+box.style.setProperty('--w',W+'px');box.style.setProperty('--h',H+'px');box.style.setProperty('--m',M+'px');
+let rx=-8,ry=-22,ex=1;const layers=[];
+U.forEach((u,i)=>{const d=document.createElement('div');d.className='L'+(i?' cut':'');d.style.backgroundImage=`url(${u})`;
+ const t=document.createElement('div');t.className='tag';t.textContent=N[i];t.style.top=(8+i*30)+'px';d.appendChild(t);box.appendChild(d);layers.push(d)});
+const D=Z[Z.length-1];const clips=[];
+function layout(){
+ layers.forEach((d,i)=>d.style.transform=`translateZ(${Z[i]*PX*ex}px)`);
+ const depth=D*PX*ex;
+ clips.forEach(c=>c.remove());clips.length=0;
+ if(document.getElementById('walls').checked){
+  const cw=14*PX, ch=depth+3*PX;
+  [[0.13,0],[0.87,0],[0.13,1],[0.87,1]].forEach(([fy,side])=>{
+   const c=document.createElement('div');c.className='clip';
+   c.style.width=cw+'px';c.style.height=ch+'px';
+   c.style.left=(side? W-cw+6*PX : -6*PX)+'px';
+   c.style.top=(fy*H)+'px';
+   c.style.transformOrigin='center top';
+   c.style.transform=`translateZ(${-1.5*PX}px) rotateX(90deg)`;
+   box.appendChild(c);clips.push(c);
+  });
+ }
+ document.body.classList.toggle('ex',ex>1.6);
+ box.style.transform=`translateZ(${-depth/2}px) rotateX(${rx}deg) rotateY(${ry}deg)`;}
+document.getElementById('tb').innerHTML=Z.map((z,i)=>`<tr><td>${N[i]}</td><td>${z} mm</td></tr>`).join('')+`<tr><td>클립 길이(깊이)</td><td>${D+3} mm</td></tr>`;
+const views={front:[0,0,1,1],angle:[-8,-22,1,1],side:[-8,-36,2.4,0],edge:[-14,-40,1,1]};
+document.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>{let w;[rx,ry,ex,w]=views[b.dataset.v];document.getElementById('ex').value=ex;document.getElementById('walls').checked=!!w;layout()});
+document.getElementById('ex').oninput=e=>{ex=+e.target.value;layout()};document.getElementById('walls').onchange=layout;
+let drag=null;const st=document.getElementById('stage');
+st.onpointerdown=e=>{drag=[e.clientX,e.clientY,rx,ry];st.setPointerCapture(e.pointerId)};
+st.onpointermove=e=>{if(!drag)return;ry=Math.max(-80,Math.min(80,drag[3]+(e.clientX-drag[0])*.3));rx=Math.max(-50,Math.min(50,drag[2]-(e.clientY-drag[1])*.3));layout()};
+st.onpointerup=()=>drag=null;
+const q=new URLSearchParams(location.search).get('v');if(q&&views[q]){let w;[rx,ry,ex,w]=views[q];document.getElementById('walls').checked=!!w;}
+layout();
+</script></body></html>

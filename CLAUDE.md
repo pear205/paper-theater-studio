@@ -1,0 +1,135 @@
+# CLAUDE.md — 페이퍼시어터 공방 (paper_cinema)
+
+이 파일은 Claude Code가 이 프로젝트를 이어받을 때 읽는 문서다. 사람이 읽는 개요는 README.md에 있다.
+
+## 프로젝트 한 줄 요약
+
+그림 한 장을 깊이별 레이어로 나누고, 3D로 미리 본 다음, **손으로 오려 쌓는** 페이퍼시어터(엔스카이 Paper Theater 스타일) 도안 PDF를 만드는 브라우저 툴.
+
+- 사용자: 레이저 커터 없이 아트칼로 자르는 개인 취미 제작자
+- 출력: A4 실제 크기 도안 (레이어별 자를 선, 클립 도안, 조립 순서)
+- 프린터 기준: 가정용 잉크젯(캐논 G 시리즈), 160~200g 매트지, 뒷면 급지
+
+## 현재 상태
+
+`prototype/paper-theater-studio.html` 단일 파일 MVP가 동작한다 (Cowork에서 제작, 헤드리스 크롬으로 E2E 확인).
+
+- 라이브러리: OpenCV.js `@techstark/opencv-js@4.10.0-release.1` (jsDelivr), jsPDF `2.5.1` (cdnjs). 둘 다 CDN 로드.
+- AI 모델은 쓰지 않는다. 전부 고전 이미지 처리.
+
+### 동작하는 기능
+
+| 영역 | 구현 |
+|---|---|
+| 이미지 입력 | 파일 열기, 긴 변 1400px로 축소. 예시 그림(코드로 그린 하늘/산/집/토끼/나무)이 기본 로드됨 |
+| 레이어 | 기본 5장. 이름, 뒤판에서의 거리 z(mm) 편집, 추가/삭제. 레이어 1은 뒤판(전체 그림 고정) |
+| 영역 지정 | 범위 지정(드래그 → GrabCut 자동 실행), 남길 곳/뺄 곳 힌트 브러시(칠하면 GrabCut 재실행), 직접 칠하기, 지우개, 범위 지정·다각형 공통 더하기/빼기(`S.selMode`), 되돌리기/다시 하기(30단계, Ctrl+Z · Ctrl+Shift+Z · Ctrl+Y) |
+| 되돌리기 구조 | `pushUndo(i, grp, parts, endSession)`가 레이어의 `mask`/`fg`/`bg` 중 바뀔 캔버스의 **알파만** `Uint8Array`로 저장한다(마스크는 흰색, 힌트는 단색이라 색은 `PART_RGB`로 복원). `rect`, `gcBase`, `gcKeep`, `gcMode`도 같이 저장한다. 같은 `grp`(힌트 획 + 그 GrabCut, 범위 드래그 + 그 GrabCut, 겹침 옮기기)는 한 번에 되돌린다. 힌트 획은 `endSession=false`라 GrabCut 작업이 이어진다. 단축키는 `e.code`로 판별(한글 자판 대응)하고, 글자 입력칸에서는 동작하지 않는다 |
+| 범위 지정 빼기 | `L.gcMode==='sub'`이면 GrabCut이 찾은 모양을 `gcBase`에서 뺀다. 초록 힌트는 항상 "남길 곳", 빨강은 "뺄 곳"이므로 빼기 모드에서는 빨강이 GrabCut 전경, 초록이 배경으로 들어간다. 빼기에서는 겹침 경고를 띄우지 않는다 |
+| 마스크 저장 방식 | 레이어마다 `mask`, `fg`(힌트), `bg`(힌트) 캔버스 3장. 마스크는 흰색+알파 |
+| 경계 넓히기/줄이기 | 레이어마다 `L.grow`(mm, -3~+3, 0.5 단위). `finalMask()`에서 단순화 전에 dilate/erode. 1번 뒤판은 해당 없음 |
+| 단순화 | 모폴로지 open/close → 가우시안 블러 → 임계값 → 작은 섬 제거 (손으로 자르기 쉬운 외곽선) |
+| 자를 선 미리보기 | 편집 화면에 빨간 선(`#showCut`). PDF와 같은 `cutArr()`(테두리 `frameOf()` + 0.5mm 여백 + 연결 다리)를 쓰므로 PDF 자를 선과 픽셀 단위로 같다. 단순화로 빠지는 곳은 어둡게 표시. 1400px에서 약 0.2초라 `S.cutDirty` 표시 후 손을 뗀 뒤 250ms 디바운스로 계산(`scheduleCut`) |
+| 가려진 부분 채우기 | `fillHidden(hole,li,fm)`(async). 레이어가 실제 쓰는 영역의 bbox만 원본 해상도에서 계산. ① 구멍 전체를 구멍 밖 픽셀만으로 push-pull(`f1PushPull`) ② 비스듬히 보일 수 있는 띠(앞 레이어 j마다 `(z_j−z_i)·tan40°+1mm`, `cv.distanceTransform`)만 1/2 크기 Telea로 다듬고 안쪽으로 갈수록 push-pull과 섞음. 구멍 안 원래 픽셀(앞 물체 색)은 쓰지 않아 실루엣 얼룩이 없다. 레이어당 약 0.16초 이하. 무늬는 못 살린다(나중에 MI-GAN 검토) |
+| 휴대폰 편집 | 폭 767px 이하에서만. 하단 고정 막대 `#mbar`(도구·더하기/빼기·이전/다음 레이어·되돌리기·맞춤 + 상황별 줄: 다각형 닫기/취소, AI 새 대상·크기·뺄 점, 붓 크기). 막대 버튼은 기존 버튼 `.click()`을 부르고 `f2Sync()`로 상태 반영. 두 손가락 핀치(1~6배)·이동은 `#editWrap` capture 리스너 + `#view` CSS transform(`pt()`가 getBoundingClientRect라 좌표 자동). 두 번째 손가락·`pointercancel`이면 첫 손가락 동작 취소(`cancelFirst`). 휴대폰에서 AI 클릭·다각형 점은 탭(pointerup, 10px 이내). AI "뺄 점" 토글 `#aiNeg`(모든 폭) |
+| 작업 저장 | IndexedDB `paper-theater`/`kv`/`project`(`version:1`, 원본 PNG Blob은 setup 때 한 번, 바뀐 레이어 마스크만 재인코딩, 설정 7개). 1.5초 디바운스, `drag` 중엔 미룸. `pushUndo`/`undoStep`을 F3 구역에서 감싸 레이어를 더럽게 표시. 시작 시 `ptStart()`: 저장본이 있으면 "지난 작업을 이어서 할까요?", 답하기 전엔 자동 저장 꺼짐(`PT.armed`). 질문이 버튼 없이 닫히면 저장본을 `prev` 키로 백업한 뒤 저장 재개. "작업 저장" 카드: `.ptheater.json` 파일 저장/불러오기(dataURL). `saveFile(name,blob,okMsg)` |
+| 깊이 자동 나누기 | 레이어 카드 "깊이로 자동 나누기 (AI)"(`#depthSplit`, 상태 `DEPTH`). `onnx-community/depth-anything-v2-small`, `pipeline('depth-estimation')`, wasm q8 27.3MB(WebGPU `shader-f16`이면 fp16 49.6MB), 추론 4~5초(wasm). 먼 띠(하늘)는 1번 뒤판에만. 레이어 k = 깊이 ≥ 임계값_k인 띠 ∪ 각 열에서 그 띠 맨 윗점 아래 전부(위 테두리에 붙은 조각은 맨 윗점 계산에서 제외). 정리 후 앞 레이어가 뒤 레이어 안에 들어가게 맞춤. 한 번의 되돌리기로 전부 취소, z는 안 바꿈. 추론 중 편집이 있으면 다시 확인 |
+| 확장 지점 | `hook(name,fn)`/`fire(name)`: `setup`, `layers`, `buttons`, `render`, `view`, `opened`. 기능별 코드는 `/* @F1 js */`~`/* @F4 js */` 구역 |
+| 테두리 | 레이어마다 테두리(기본 6mm, 클립 끼우는 곳). 맨 앞 레이어는 9mm 크림색 프레임 + 둥근 안쪽 모서리 |
+| 연결 다리 | 테두리에 안 붙은 조각(떨어지는 조각)은 가장 아래 점에서 아래 테두리까지 3mm 띠를 자동 추가 |
+| 3D 미리보기 | CSS 3D transform. 드래그 회전, 정면/비스듬히/펼쳐 보기, 간격 과장 슬라이더, 모서리 클립 표시 |
+| PDF | 레이어당 A4 1쪽(JPEG로 납작하게 + 빨간 벡터 자를 선 `findContours`+`approxPolyDP`), 클립 위치 파란 표시, 50mm 배율 확인 눈금, 클립 4개 도안, 조립 순서. 한글은 jsPDF 폰트 문제 때문에 캔버스로 그린 텍스트 이미지로 넣음 |
+| 저장 | claude.ai Artifact 안에서는 `claude.use('downloads')`, 일반 브라우저에서는 `<a download>` |
+
+### 구조 규칙 (실물 키트 분석에서 나온 값)
+
+- 엔스카이 정품 크기: 약 W100 × H80 × D42mm. 우리 기본값은 A5 가로(210mm), 5장, 총 깊이 약 2.2cm(클립 포함 3cm).
+- 기본 z 간격: `[0, 5, 10, 16, 22]` mm. 앞으로 올수록 간격을 넓혀야 입체감이 산다.
+- 고정 방식: **모서리 클립 4개**(좌우 × 위아래 13%/87% 높이). 클립은 레이어에 수직인 띠(폭 12mm, 길이 = 총 깊이 + 8mm)이고, 홈(폭 0.6mm, 깊이 5mm)이 `4mm + z` 위치에 파여 있다. 레이어 테두리가 홈에 끼워진다. 그래서 테두리는 6mm 이상이어야 한다.
+- 손 커팅 전제: 2~3mm보다 가는 부분 제거, 잔디테일 단순화, 안쪽 구멍 최소화.
+
+## 알려진 버그 / 문제
+
+1. ~~시작 레이어 버그~~ (고침): `sample()`이 이제 2번 레이어(`S.active=1`)로 시작한다.
+2. ~~GrabCut이 범위 상자 안을 통째로 덮어씀~~ (고침): GrabCut 결과는 기존 마스크에 OR로 더해진다. 첫 실행 직전 마스크를 `L.gcBase`에 저장해 두고, 힌트 브러시로 다시 돌리면 `gcBase OR 새 결과`로 바꾼다. 그래서 힌트는 GrabCut이 더한 부분만 고치고 원래 있던 마스크는 건드리지 않는다. 새 범위 지정이나 직접 편집(`pushUndo`)을 하면 `gcBase`가 초기화되고, 되돌리기는 저장해 둔 `gcBase`를 함께 되살린다. 확인 스크립트: `reference/e2e/verify-roadmap1.js`.
+3. **레이어 간 겹침 인식** (일부 해결): 새 선택(GrabCut, 다각형 더하기)으로 더해진 픽셀만 다른 레이어와 비교한다(`checkOverlap`). 앞 레이어와 겹친 픽셀이 150px 이상이면서 새 픽셀의 2% 이상이면 "n번 레이어에 이미 있어요" 창(`#ask`)이 뜬다. "옮기기"를 누르면 다른 레이어에서 그 픽셀을 지운다(`moveOverlap`). 이 작업은 `grp`로 묶인 실행 취소 기록이라 되돌리기 한 번에 취소된다. "둘 다 두기"를 누르면 `L.gcKeep`이 켜져서, 같은 GrabCut 작업 안에서 힌트로 다시 돌릴 때는 다시 묻지 않는다. 직접 칠하기로 더한 픽셀은 검사하지 않고, 화면에 겹침을 표시하는 기능(로드맵 3)도 아직 없다.
+4. **인페인트 번짐** (대부분 해결): 실루엣 얼룩과 방사형 줄무늬는 없어졌다. 다만 가려진 곳은 주변 색을 편 부드러운 면이라 무늬(꽃밭 등)는 없다.
+5. claude.ai Artifact 뷰어 안에서 OpenCV.js(wasm)가 로드되는지는 미확인. 실패 시 우측 상단 표시가 "OpenCV를 못 불러왔어요"로 바뀌고 직접 칠하기/다각형만 남는다.
+6. ~~작업 저장/불러오기 없음~~ (해결): 자동 저장 + 파일 저장. 힌트·되돌리기 기록·현재 도구는 저장하지 않는다.
+7. AI(SAM, 깊이) 추론이 메인 스레드에서 돌아 wasm 경로에서는 몇 초 화면이 멈춘다. 워커 이동은 미뤘다.
+8. 휴대폰 실기기와 WebGPU 경로는 헤드리스 테스트로 확인하지 못했다.
+
+## 테스트 (2026-10-25 이후)
+
+- Playwright 1.48.2는 프로젝트 밖(scratchpad의 `pw` 폴더)에 설치. 사용법·require 경로는 `prototype/work/tests/README.md`.
+- `prototype/work/tests/`: `smoke`, `fill`, `mobile`(28항목), `save`, `split`, `integration`(16항목). 모두 URL을 인자로 받고, 이미지 출력은 `OUT_DIR` 환경변수로 바꿀 수 있다. 로컬 서버(`python -m http.server 8765`, 프로젝트 루트)가 필요하다.
+- `prototype/work/`의 `base.html`·`fill/mobile/save/split.html`은 병렬 작업에 쓴 사본이다(병합 끝남, 본 파일이 최신). git에는 올리지 않는다(`.gitignore`).
+
+## 형상 관리·배포
+
+- 이 폴더가 공개 git 저장소 `pear205/paper-theater-studio`(main)다. 2026-10-25부터 프로젝트 전체를 오픈으로 관리한다.
+- GitHub Pages가 main 브랜치 루트를 그대로 제공한다. 루트 `index.html`은 `prototype/paper-theater-studio.html`로 넘겨 준다. **main에 push하면 1분 안에 https://pear205.github.io/paper-theater-studio/ 에 반영된다.**
+- 올리지 않는 것: `samples/`(저작권 있는 테스트 그림)와 그걸로 만든 `prototype/work/*.png`, 병렬 작업 사본, 도구 상태(`.omc/`, `.claude/settings.local.json`). 새 테스트 그림도 `samples/`에 둔다.
+- 폴더가 구글 드라이브 안이라, 다른 PC에서 같은 폴더를 동시에 쓰면 `.git`이 동기화 충돌로 깨질 수 있다. 다른 곳에서는 `git clone`으로 따로 받아 쓴다.
+
+## 로드맵 (우선순위 순)
+
+1. 버그 1, 2 수정
+2. ~~겹침 경고~~ (완료): 새 선택 영역이 다른 레이어와 겹치면 "n번 레이어에 이미 있어요. 옮길까요 / 둘 다 둘까요"
+3. ~~다른 레이어 윤곽 표시, 겹친 픽셀 주황색 강조, 현재 레이어 이름표~~ (완료): `render()`가 캔버스 합성만으로 그린다(픽셀 루프 없음). 다른 레이어 윤곽은 레이어 색(`layerColor`)으로 그리고 "다른 레이어 윤곽 보기"(`#showOthers`)로 끌 수 있다. 주황색 강조는 지금 레이어와 **앞 레이어**(번호가 더 큰 레이어) 합집합의 교집합이다. 겹침 경고(`checkOverlap`)도 같은 기준이다. 뒤 레이어가 앞 레이어 뒤까지 이어지는 것은 정상이라 앞 레이어 쪽에서는 표시하지 않는다. 이름표는 `#viewBox` 안의 `#layerTag`. 주의: 예시 그림처럼 뒤 레이어가 꽉 찬 모양이면, 뒤 레이어(2·3번)를 볼 때 앞 레이어에 가려지는 넓은 면이 주황색으로 보인다.
+4. **레이어로 옮기기**: 선택한 오브젝트를 통째로 다른 레이어로 이동
+5. **마법봉** (AI 없는 자동 선택: 색 허용치 + 연결 영역, 단색 일러스트에 강함)
+6. ~~AI 클릭 선택~~ (완료): `@huggingface/transformers@3.8.1`(jsDelivr ESM, 동적 import) + `Xenova/slimsam-77-uniform`. "AI로 선택 (클릭)" 도구를 처음 고를 때만 라이브러리·모델을 받는다(`aiStart` → 동의 창 → `aiLoad`). 이미 캐시에 있으면 묻지 않고 바로 연다.
+   - 백엔드: WebGPU가 있으면 이미지 인코더 `webgpu`+fp16, 클릭 디코더 `wasm`+q8(약 17MB, 인코딩 약 0.7초, 클릭 약 0.13초). 없거나 실패하면 둘 다 `wasm`+q8(약 14MB, 인코딩 약 4초). 2026-10 sample1(1000×672) 기준.
+   - 인코딩은 그림마다 한 번(`aiEncode`, `setupImage`에서 자동). 클릭은 `[x,y,label]` 점을 쌓아 다시 디코딩(`aiDecode`). Shift/오른쪽 클릭은 label 0. 후보 3개를 면적순으로 "크게/중간/작게" 버튼에 대응하고, 기본은 "크게".
+   - 적용은 GrabCut과 같은 세션 구조(`gcBase` OR / 빼기 모드면 AND NOT). 점 목록 `L.aiPts`와 `L.aiLevel`도 되돌리기 기록에 들어간다. "새 대상"·Esc·다른 도구로 바꾸기를 하면 세션이 끝난다.
+   - 캐시: transformers.js 기본 Cache Storage(`transformers-cache`). 파일을 바로 연 화면(origin `null`)에서는 Cache Storage가 없어 열 때마다 다시 받는다(동의 창 문구가 그에 맞게 바뀜). 로컬 서버(`python -m http.server`)로 열면 저장된다.
+   - claude.ai Artifact 안(`window.claude.use` 있음)에서는 비활성화하고 안내만 보여 준다.
+7. ~~작업 저장/불러오기~~ (완료)
+8. 레이어 순서 바꾸기, 자를 선만 출력(투명 배경 위 선), 아치형 프레임 등 프레임 모양 선택
+9. 키트 스타일 변환 옵션: 포스터라이즈 + 외곽선(단색 면 + 갈색 테두리) — 손 커팅이 쉬워짐
+10. ~~Depth Anything으로 레이어 자동 분할~~ (완료, 결과는 출발점이라 다듬기 필요)
+11. (검토) MI-GAN AI 채우기로 가려진 부분에 무늬 살리기
+12. (검토) AI 추론을 Web Worker로 옮기기
+
+## 추천 구조 (MVP → 정식 프로젝트)
+
+단일 HTML을 아래처럼 나눈다. Vite + TypeScript 추천. 서버 없이 정적 배포.
+
+```
+src/
+  main.ts            앱 부트스트랩, 상태(store)
+  state.ts           Layer 타입, 앱 상태, undo 스택
+  cv/loader.ts       OpenCV.js 로딩 (cv가 Promise이거나 onRuntimeInitialized인 경우 모두 처리)
+  segment/grabcut.ts 범위+힌트 → 마스크
+  segment/wand.ts    마법봉
+  segment/sam.ts     (선택) transformers.js SAM
+  mask/refine.ts     단순화, 섬 제거, 연결 다리, 겹침 계산
+  mask/inpaint.ts    가려진 부분 채우기
+  render/editor.ts   편집 캔버스, 포인터 도구
+  render/preview3d.ts CSS 3D 미리보기
+  export/pdf.ts      jsPDF 도안, 클립, 조립 순서, 한글 텍스트 이미지
+  ui/                패널, 레이어 목록, 토스트
+```
+
+- OpenCV `Mat`은 반드시 `delete()` 한다 (wasm 메모리 누수). 기존 코드는 `mats` 배열에 모아서 `finally`에서 지운다.
+- 마스크 연산은 `Uint8Array(W*H)`(0/255) 하나로 통일하고, 캔버스는 표시·브러시용으로만 쓰는 쪽이 깔끔하다.
+- GrabCut 상수는 숫자로 쓴다: BGD 0, FGD 1, PR_BGD 2, PR_FGD 3, `GC_INIT_WITH_MASK` 1.
+- 무거운 계산(GrabCut, inpaint, 텍스처 생성)은 나중에 Web Worker로 옮기면 UI가 안 멈춘다.
+
+## 테스트
+
+- `reference/e2e/test.js`: Playwright로 예시 그림 로드 → 4번 레이어 비우기 → 토끼 범위 드래그(GrabCut) → 3D 미리보기 → PDF 다운로드까지 확인하는 스크립트. `node test.js`로 `reference/e2e`에서 실행 (CDN 접근 필요).
+- PDF 확인: `pdftoppm -r 40 -png out.pdf pg` 로 썸네일을 만들어 눈으로 본다. 기대값: 레이어 수 + 1쪽, 약 400KB(텍스트 이미지는 JPEG로 넣어야 크기가 작다. PNG로 넣으면 8MB가 된다).
+
+## 참고 자료 (reference/)
+
+- `reference/python/seg.py`: 처음 프로토타입. 게임 일러스트 한 장을 OpenCV(Python)로 6레이어 분리한 스크립트. 하늘(HSV + 연결 영역), 캐릭터(GrabCut + 손으로 찍은 힌트 다각형), 물/잔디 제거(색 범위), 숨은 부분(inpaint), 하늘 레이어는 그라데이션으로 채움. 좌표가 그 이미지에 하드코딩되어 있으니 기법 참고용.
+- `reference/python/build2.py`, `tpl2.html`: 레이어 PNG → 테두리/클립 3D 예상도 HTML 생성기.
+- `prototype/sample-pattern.pdf`: 현재 MVP로 예시 그림을 내보낸 결과물.
+
+## 사용자 선호
+
+- 한국어 UI, 존댓말 안내 문구, 짧고 쉬운 문장
+- 실제 키트처럼 얇고 전시하기 쉬운 형태 선호
+- AI는 선택 기능으로. 기본은 가볍게.

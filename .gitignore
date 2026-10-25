@@ -1,0 +1,12 @@
+# tool state
+.omc/
+**/.omc/
+.claude/settings.local.json
+node_modules/
+
+# copyrighted test images and anything rendered from them
+samples/
+prototype/work/*.png
+
+# parallel-work copies (already merged into prototype/paper-theater-studio.html)
+prototype/work/*.html
