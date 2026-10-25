@@ -65,13 +65,14 @@ const toScreen = (page, x, y) => page.evaluate(([x, y]) => { const r = view.getB
   // 2) click commits; matches the preview
   const u0 = await page.evaluate(() => S.undo.length);
   await page.mouse.down(); await page.mouse.up();
-  await page.waitForFunction(() => !S.aiBusy && S.aiLast, null, { timeout: 30000 });
+  // read the autosave flag the moment the result lands: the 1.5 s autosave may run (and clear it) during the slow checks below
+  await page.waitForFunction(() => { if (S.aiBusy || !S.aiLast) return false; window.__dirtyAtCommit = cur().__d === true; return true; }, null, { timeout: 30000 });
   const n1 = await maskCount(page);
   const iou = await iouPreview(page, pv.a);
   res.previewIoU = +iou.toFixed(3);
   check('click commits a mask', n1 > 500, { n1 });
   check('committed mask matches hover preview (IoU > 0.85)', iou > 0.85, iou);
-  const st = await page.evaluate(() => ({ lv: cur().aiLevel, c: S.aiLast.masks.map((m) => ({ area: m.area, iou: +m.iou.toFixed(3) })), pick: aiPick(S.aiLast.masks), undo: S.undo.length, dirty: cur().__d === true }));
+  const st = await page.evaluate(() => ({ lv: cur().aiLevel, c: S.aiLast.masks.map((m) => ({ area: m.area, iou: +m.iou.toFixed(3) })), pick: aiPick(S.aiLast.masks), undo: S.undo.length, dirty: window.__dirtyAtCommit }));
   res.candidates = st.c; res.defaultLevel = st.lv;
   check('default = aiPick (best IoU, not a sliver)', st.lv === st.pick, st);
   check('click is one undo step + autosave sees it', st.undo === u0 + 1 && st.dirty, st);

@@ -34,6 +34,9 @@ const OUT = process.env.OUT_DIR || path.resolve(__dirname, '..');
   }
   const info = () => page.evaluate(() => ({ ...DEPTH.info, gpu: DEPTH.gpu, runMs: DEPTH.runMs, objMs: DEPTH.objMs, maskMs: DEPTH.maskMs, totalMs: DEPTH.totalMs }));
   const masks = () => page.evaluate(() => S.layers.map(L => { const a = alphaArr(L.mask); let n = 0, h = 0; for (let i = 0; i < a.length; i++) if (a[i]) { n++; h = (h * 31 + i) >>> 0; } return { n, h }; }));
+  // pixels of a layer band (DEPTH.lab >= 1) that sit on no layer: cleanup must hand them to the layer behind (band 0 may stay on the back plate)
+  const orphans = () => page.evaluate(() => { const A = S.layers.slice(1).map(L => alphaArr(L.mask)), lab = DEPTH.lab; let o = 0;
+    for (let i = 0; i < lab.length; i++) if (lab[i] >= 1) { let h = false; for (const a of A) if (a[i]) { h = true; break; } if (!h) o++; } return o; });
   // the girl (SAM click at her face) against the layers:
   //  ghost: for each layer behind the one she is shown on, her pixels above that layer's band top line (topmost pixel
   //  of its own depth band in each column) that it still holds. A back layer whose outline followed her silhouette
@@ -95,7 +98,7 @@ const OUT = process.env.OUT_DIR || path.resolve(__dirname, '..');
   const before = await masks();
   const ms1 = await runSplit('sample', true);
   const after = await masks();
-  res.sample = { wallMs: ms1, info: await info(), counts: after.map(m => m.n) };
+  res.sample = { wallMs: ms1, info: await info(), counts: after.map(m => m.n), orphans: await orphans() };
   await viz(path.join(OUT, 'split-sample.png'));
   await page.evaluate(() => undo());
   const undone = await masks();
@@ -111,12 +114,12 @@ const OUT = process.env.OUT_DIR || path.resolve(__dirname, '..');
   if (s1) {
     await page.waitForFunction(() => S.src !== window.__s1 && AI.src === S.src && AI.emb && !AI.encoding, null, { timeout: 120000, polling: 500 });
     const msP = await runSplit('sample1-pixel', false);
-    res.pixel = { wallMs: msP, info: await info(), counts: (await masks()).map(m => m.n), girl: await girl() };
+    res.pixel = { wallMs: msP, info: await info(), counts: (await masks()).map(m => m.n), orphans: await orphans(), girl: await girl() };
     await viz(path.join(OUT, 'split-sample1-pixel.png'));
     await shot3d(path.join(OUT, 'split-3d-pixel.png'));
     await page.evaluate(() => undo());
     const msO = await runSplit('sample1-object', true);
-    res.object = { wallMs: msO, info: await info(), counts: (await masks()).map(m => m.n), girl: await girl() };
+    res.object = { wallMs: msO, info: await info(), counts: (await masks()).map(m => m.n), orphans: await orphans(), girl: await girl() };
     await viz(path.join(OUT, 'split-sample1-object.png'));
     await shot3d(path.join(OUT, 'split-3d-object.png'));
     await page.evaluate(() => undo());
@@ -129,7 +132,7 @@ const OUT = process.env.OUT_DIR || path.resolve(__dirname, '..');
   const nonEmpty = runs.every(r => r.counts.slice(1).every(n => n > 0));
   const noGhost = r => [r.girl.face, r.girl.whole].every(m => Object.values(m.ghost).every(g => g.ofGirl < 0.01));
   const checks = {
-    nonEmpty, sampleUndo: res.sample.undoRestoresAll && res.sample.changed, oneConsent: asks.filter(a => /받아요/.test(a)).length === 1,
+    noOrphans: runs.every(r => r.orphans === 0), nonEmpty, sampleUndo: res.sample.undoRestoresAll && res.sample.changed, oneConsent: asks.filter(a => /받아요/.test(a)).length === 1,
     sampleUsedObjects: res.sample.info.objects > 0,
   };
   if (s1) Object.assign(checks, {

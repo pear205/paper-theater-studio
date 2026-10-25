@@ -21,7 +21,8 @@ const fake = (p, bb) => p.evaluate((bb) => {
   const m = 40, inR = (x, y, r) => x >= r[0] && x < r[2] && y >= r[1] && y < r[3];
   const big = [bb.x - m, bb.y - m, bb.x + bb.w + m, bb.y + bb.h + m], half = [bb.x - m, bb.y - m, bb.x + bb.w / 2, bb.y + bb.h + m];
   put(4, (x, y, o) => o); put(2, (x, y, o) => o || inR(x, y, big)); put(1, (x, y, o) => o || inR(x, y, half));
-  return { obj: obj.reduce((a, b) => a + b, 0), big, half };
+  let outBefore = 0; for (let k = 0; k < obj.length; k++) if (obj[k] && !inR(k % W, (k / W) | 0, half)) outBefore++;
+  return { obj: obj.reduce((a, b) => a + b, 0), big, half, outBefore };
 }, bb);
 // per-layer [alpha count, hash]
 const sums = (p) => p.evaluate(() => S.layers.map((L) => { const d = L.mask.getContext('2d').getImageData(0, 0, S.W, S.H).data; let n = 0, h = 0; for (let i = 0; i < S.W * S.H; i++) if (d[i * 4 + 3] > 127) { n++; h = (h * 31 + i) | 0; } return [n, h]; }));
@@ -31,6 +32,14 @@ const inter = (p, a, b, rect) => p.evaluate(([a, b, rect]) => {
   for (let i = 0; i < S.W * S.H; i++) { if (rect) { const x = i % S.W, y = (i / S.W) | 0; if (x >= rect[0] && x < rect[2] && y >= rect[1] && y < rect[3]) continue; } if (da[i * 4 + 3] > 127 && db[i * 4 + 3] > 127) n++; }
   return n;
 }, [a, b, rect]);
+// rabbit pixels on layer 2 outside the half rect: ears (top 30% of the box) and body, now vs before (before = whole object there)
+const thinStay = (p, bb, half) => p.evaluate(([bb, half]) => {
+  const d1 = S.layers[1].mask.getContext('2d').getImageData(0, 0, S.W, S.H).data, d3 = S.layers[3].mask.getContext('2d').getImageData(0, 0, S.W, S.H).data;
+  const r = { ears: 0, earsBefore: 0, body: 0, bodyBefore: 0 };
+  for (let i = 0; i < S.W * S.H; i++) { const x = i % S.W, y = (i / S.W) | 0; if (d3[i * 4 + 3] <= 127 || (x >= half[0] && x < half[2] && y >= half[1] && y < half[3])) continue;
+    const e = y < bb.y + bb.h * 0.3; r[e ? 'earsBefore' : 'bodyBefore']++; if (d1[i * 4 + 3] > 127) r[e ? 'ears' : 'body']++; }
+  return r;
+}, [bb, half]);
 const waitGc = (p) => p.waitForFunction(() => { try { return !!cur().gcBase && !document.querySelector('.busy'); } catch (e) { return false; } }, null, { timeout: 60000 });
 
 async function scenario(page, name, phone) {
@@ -63,7 +72,10 @@ async function scenario(page, name, phone) {
   check(name + ': layer 4 has the rabbit', (await inter(page, 3, 3)) >= f.obj && after[3][0] >= f.obj, after[3]);
   check(name + ': layer 3 keeps enclosed rabbit, outline is still the big rect', objAfter[1] === f.obj && after[2][0] === before[2][0] && after[2][1] === before[2][1], [objAfter[1], after[2][0], before[2][0]]);
   const outside = await inter(page, 1, 3, f.half);
-  check(name + ': layer 2 rabbit parts sticking out removed', outside === 0, outside);
+  // bulk of the part sticking out is removed; only a thin rim (thin parts such as the ear tips) stays on the back layer
+  const out0 = f.outBefore, thin = await thinStay(page, bb, f.half);
+  check(name + ': layer 2 rabbit bulk sticking out removed', outside < out0 * 0.3, [outside, out0]);
+  check(name + ': layer 2 thin protruding parts (ears) stay', thin.ears > 0 && thin.ears >= thin.earsBefore * 0.8 && thin.body < thin.bodyBefore * 0.3, thin);
   check(name + ': layer 2 changed, layer 1 untouched', after[1][1] !== before[1][1] && after[0][1] === before[0][1] && after[0][0] === before[0][0]);
   check(name + ': session ended', await page.evaluate(() => !cur().gcBase && document.getElementById('gatherR').disabled && document.getElementById('mGather').disabled));
   const tt = await page.evaluate(() => document.getElementById('toast').textContent);

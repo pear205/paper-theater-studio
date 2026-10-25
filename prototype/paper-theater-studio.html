@@ -1186,7 +1186,7 @@ hook('render',()=>{
 
 /* ---------- gather to layer ---------- */
 // object = AI candidate of this session, or what this GrabCut session added on top of gcBase
-function gatherOk(){const L=cur();if(!L||S.active===0||!S.W||L.gcMode==='sub')return false;
+function gatherOk(){const L=cur();if(!L||S.active===0||!S.W||L.gcMode==='sub'||S.aiBusy||DEPTH.busy)return false;
   return S.tool==='ai'?!!(S.aiLast&&S.aiLast.L===L&&S.aiLast.masks[L.aiLevel||0]):S.tool==='rect'&&!!L.gcBase}
 function gatherSync(){const ok=gatherOk(),t=S.tool;
   ['gather','gatherR','mGather'].forEach(id=>{const b=$(id);if(b)b.disabled=!ok});
@@ -1205,10 +1205,14 @@ function gatherRun(){if(!gatherOk())return;
   const W=S.W,n=W*S.H,A=S.active,obj=gatherObj();let cnt=0;for(let i=0;i<n;i++)cnt+=obj[i];if(!cnt)return;
   const grp=newGrp(),plan=[]; // [layer index, new binary mask]
   const rd=i=>{const d=S.layers[i].mask.getContext('2d').getImageData(0,0,W,S.H).data,m=new Uint8Array(n);for(let k=0;k<n;k++)m[k]=d[k*4+3]>127?1:0;return m};
+  let eo=null;
+  const erodeObj=o=>{const cv=S.cv,r=Math.max(2,Math.round(pxPerMm())),k=cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(2*r+1,2*r+1)),a=new Uint8Array(n);for(let q=0;q<n;q++)a[q]=o[q]?255:0;
+    const m=cv.matFromArray(S.H,W,cv.CV_8UC1,a);try{cv.erode(m,m,k);return Uint8Array.from(m.data,v=>v?1:0)}finally{m.delete();k.delete()}};
   for(let i=1;i<S.layers.length;i++){if(i===A)continue;
     const m=rd(i);let hit=false;for(let k=0;k<n;k++)if(m[k]&&obj[k]){hit=true;break}if(!hit)continue;
-    const r=new Uint8Array(n);for(let k=0;k<n;k++)r[k]=m[k]&&!obj[k]?1:0;
-    if(i<A){const h=enclosed(r);for(let k=0;k<n;k++)if(m[k]&&obj[k]&&h[k])r[k]=1} // behind: keep parts hidden behind the object anyway
+    const ob=i<A?(eo=eo||erodeObj(obj)):obj; // behind: thin parts of the object (ear tips) stay on back layers
+    const r=new Uint8Array(n);for(let k=0;k<n;k++)r[k]=m[k]&&!ob[k]?1:0;
+    if(i<A){const r0=new Uint8Array(n);for(let k=0;k<n;k++)r0[k]=m[k]&&!obj[k]?1:0;const h=enclosed(r0);for(let k=0;k<n;k++)if(m[k]&&ob[k]&&h[k])r[k]=1} // behind: keep parts hidden behind the object anyway
     let ch=false;for(let k=0;k<n;k++)if(r[k]!==m[k]){ch=true;break}if(ch)plan.push([i,r,i>A])}
   const ma=rd(A),ra=new Uint8Array(n);for(let k=0;k<n;k++)ra[k]=ma[k]||obj[k]?1:0;plan.push([A,ra,false]);
   plan.forEach(([i,r])=>{pushUndo(i,grp);const g=S.layers[i].mask.getContext('2d'),id=g.createImageData(W,S.H),d=id.data;
@@ -1444,7 +1448,7 @@ async function depthClick(){
   if(aiBlocked()){toast('이 화면에서는 깊이 AI를 쓸 수 없어요');return}
   if(!S.cv){toast('OpenCV를 불러오는 중이에요. 잠시 뒤에 눌러 주세요');return}
   if(S.layers.length<2){toast('레이어가 2장 이상 있어야 해요');return}
-  const go=()=>DEPTH.state==='ready'?depthConfirm():depthLoad();
+  const go=()=>{DEPTH.useObj=$('depthObj').checked;DEPTH.state==='ready'?depthConfirm():depthLoad()};
   // one question covers both downloads: the depth model and (for 물체 단위로 맞추기) the AI select model
   const needD=DEPTH.state!=='ready'&&!(await depthCached()),needA=$('depthObj').checked&&AI.state!=='ready'&&AI.state!=='loading'&&!(await aiCached());
   if(!needD&&!needA){go();return}
@@ -1521,7 +1525,7 @@ const DEPTH_SPREAD=.3; // max 10-90% depth range (normalized) of one object
 async function depthObjects(d,B,say){
   const T=AI.T,W=S.W,H=S.H,{lab,lo,sc,th}=B,rs=AI.inputs.reshaped_input_sizes[0],GX=16,GY=10,BATCH=8,pts=[];
   for(let j=0;j<GY;j++)for(let i=0;i<GX;i++){const x=Math.round((i+.5)*W/GX),y=Math.round((j+.5)*H/GY);if(lab[y*W+x]>=0)pts.push([x,y])}
-  const objs=[];let lw=0,lh=0,lw0=0,lh0=0;
+  const objs=[];let lw=0,lh=0,lw0=0,lh0=0,dq=0;
   for(let b=0;b<pts.length;b+=BATCH){
     say(`물체 찾는 중… ${b}/${pts.length}`);await tick();
     const P=pts.slice(b,b+BATCH),np=P.length;
@@ -1538,7 +1542,7 @@ async function depthObjects(d,B,say){
       const ob={lg,bin,area:pick.area,iou:pick.iou,box:[x0,y0,x1,y1]};
       // same object found from another grid point: keep the better-scored one
       let dup=-1;for(let q=0;q<objs.length&&dup<0;q++){const e=objs[q],bx0=Math.max(x0,e.box[0]),by0=Math.max(y0,e.box[1]),bx1=Math.min(x1,e.box[2]),by1=Math.min(y1,e.box[3]);
-        if(bx1<bx0||by1<by0)continue;let I=0;for(let y=by0;y<=by1;y++)for(let x=bx0;x<=bx1;x++){const r=y*lw+x;if(bin[r]&&e.bin[r])I++}
+        if(bx1<bx0||by1<by0)continue;if((++dq&7)===0)await tick();let I=0;for(let y=by0;y<=by1;y++)for(let x=bx0;x<=bx1;x++){const r=y*lw+x;if(bin[r]&&e.bin[r])I++}
         if(I/(ob.area+e.area-I)>.8)dup=q}
       if(dup<0)objs.push(ob);else if(ob.iou>objs[dup].iou)objs[dup]=ob}}
   say(`물체 ${objs.length}개를 맞추는 중…`);await tick();
@@ -1597,6 +1601,9 @@ function depthMasks(B,n){
       cv.morphologyEx(m,m,cv.MORPH_OPEN,kL);cv.morphologyEx(m,m,cv.MORPH_CLOSE,kL);islands(m);columns(m,near);holes(m);
       res.push(new Uint8Array(m.data))}
   }finally{mats.forEach(x=>x.delete())}
+  // pieces cleanup dropped from a band go to the layer one step behind (band 0 stays on the back plate)
+  for(let i=0;i<lab.length;i++){const k=lab[i];if(k>=1&&k<=res.length){let h=false;for(let j=0;j<res.length;j++)if(res[j][i]){h=true;break}if(!h)res[k-1][i]=255}}
+  DEPTH.empty=res.map((r,j)=>r.some(v=>v)?0:j+2).filter(Boolean);
   DEPTH.info={th:th.map(v=>+v.toFixed(3)),far:+th[0].toFixed(3)};
   return res}
 async function depthRun(){
@@ -1608,25 +1615,30 @@ async function depthRun(){
     await tick();const t0=performance.now();
     const d=await depthMap(src);if(S.src!==src){depthSay('');return}
     const n=S.layers.length,B=depthBands(d,n);let objs=null;DEPTH.objMs=null;
-    if($('depthObj').checked){const t2=performance.now();
+    if(DEPTH.useObj){const t2=performance.now();
       if(AI.state==='off'||AI.state==='error'){const iv=setInterval(()=>depthSay(`물체 찾기 AI 모델 받는 중… ${aiPct()}%`),300);try{await aiLoad()}finally{clearInterval(iv)}}
       while(AI.state==='loading'){depthSay(`물체 찾기 AI 모델 받는 중… ${aiPct()}%`);await new Promise(r=>setTimeout(r,300))}
       if(AI.state==='ready'){depthSay('물체를 찾으려고 그림을 분석하는 중…');await aiEncode()}
       if(S.src!==src){depthSay('');return}
-      if(AI.state==='ready'&&AI.emb&&AI.src===src){objs=await depthObjects(d,B,depthSay);DEPTH.objMs=Math.round(performance.now()-t2)}
+      if(AI.state==='ready'&&AI.emb&&AI.src===src){
+        if(AI.pvJob)await AI.pvJob; // one decoder run at a time
+        S.aiBusy=true;AI.hv=null;AI.pv=null;
+        try{objs=await depthObjects(d,B,depthSay);DEPTH.objMs=Math.round(performance.now()-t2)}
+        catch(err){console.warn(err);objs=null;toast('물체 찾기에 실패해서 깊이만으로 나눠요')}
+        finally{S.aiBusy=false;refreshAi()}}
       else toast('AI 선택 모델을 못 써서 깊이만으로 나눠요');
       if(S.src!==src){depthSay('');return}}
     depthSay('레이어로 나누는 중…');await tick();
     const t1=performance.now(),ms=depthMasks(B,n);DEPTH.maskMs=Math.round(performance.now()-t1);DEPTH.totalMs=Math.round(performance.now()-t0);
     DEPTH.info.objects=objs;DEPTH.info.wide=objs===null?null:DEPTH.wide;DEPTH.lab=B.lab;
-    const write=()=>{if(S.src!==src||S.layers.length!==n)return;
+    const write=()=>{if(S.src!==src)return;if(S.layers.length!==n){depthSay('');toast('레이어 수가 바뀌어서 나누기를 취소했어요');return}
     const grp=newGrp();S.aiLast=null;
     ms.forEach((a,j)=>{const i=j+1,L=S.layers[i];pushUndo(i,grp);L.aiPts=[];L.rect=null;
       const g=L.mask.getContext('2d'),id=g.createImageData(S.W,S.H),od=id.data;
       for(let p=0;p<a.length;p++)if(a[p]){const k=p*4;od[k]=od[k+1]=od[k+2]=od[k+3]=255}
       g.putImageData(id,0,0)});
     S.active=1;S.poly=[];renderLayers();render();if(S.view==='3d')build3D();
-    toast('깊이로 나눴어요. 시작점이니 도구로 다듬어 주세요');
+    toast('깊이로 나눴어요. 시작점이니 도구로 다듬어 주세요'+(DEPTH.empty.length?`. ${DEPTH.empty.join(', ')}번 레이어가 비었어요`:''));
     depthSay('깊이로 나눈 결과는 시작점이에요. 레이어마다 경계를 다듬어 주세요. 되돌리기 한 번이면 원래대로 돌아와요.');};
     // layers edited while the depth was being measured: confirm again before overwriting
     if(depthSig()!==sig0){depthSay('');ask('깊이를 재는 동안 레이어를 고치셨어요. 깊이로 나눈 결과로 바꿀까요? 되돌리기 한 번으로 돌아올 수 있어요.',[['바꾸기',write],['그만두기',()=>{}]])}
