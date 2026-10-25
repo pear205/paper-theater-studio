@@ -107,6 +107,28 @@ async function click(page, pt, mod) {
   check('after undo a click starts a new object', f1 === 1 && (await info(page)).comps === 2, f1);
   await page.evaluate(() => $('aiNew').click());
   check('새 대상 ends the session', await page.evaluate(() => !cur().aiPts.length && !S.aiLast));
+  // 6) gather: two objects picked in one session both move to the active layer and leave the front layer
+  await page.evaluate(() => { const L = cur(); L.mask.getContext('2d').clearRect(0, 0, S.W, S.H); const f = S.layers[4].mask.getContext('2d'); f.fillStyle = '#fff'; f.fillRect(0, 0, S.W, S.H); render(); });
+  await click(page, DEER); await click(page, GIRL);
+  const gOk = await page.evaluate(() => !$('gather').disabled);
+  await page.evaluate(() => $('gather').click()); await sleep(500);
+  const gat = await page.evaluate(([d, g]) => { const px = (L, p) => L.mask.getContext('2d').getImageData(p[0], p[1], 1, 1).data[3] > 127; return { dA: px(S.layers[3], d), gA: px(S.layers[3], g), dF: px(S.layers[4], d), gF: px(S.layers[4], g) }; }, [DEER, GIRL]);
+  check('gather with two AI objects: both in the active layer, both removed from the front layer', gOk && gat.dA && gat.gA && !gat.dF && !gat.gF, { gOk, gat });
+  // 7) small candidate chosen, click on the larger body of the same object: cycles instead of a new object
+  await page.evaluate(() => { $('aiNew').click(); const L = cur(); L.mask.getContext('2d').clearRect(0, 0, S.W, S.H); render(); });
+  await click(page, GIRL);
+  await page.evaluate(() => document.querySelector('#aiCands [data-lv="2"]').click());
+  const c0 = await page.evaluate(() => ({ lv: cur().aiLevel, pts: cur().aiPts.length, u: S.undo.length }));
+  await click(page, BODY);
+  const c1 = await page.evaluate(() => ({ lv: cur().aiLevel, pts: cur().aiPts.length }));
+  check('with 작게 chosen, clicking the larger body cycles (same object)', c0.lv === 2 && c1.pts === c0.pts && c1.lv === 0, { c0, c1 });
+  // 8) Ctrl+Z right after a Ctrl keydown leaves no preview
+  const [hx, hy] = await toScreen(page, ...DEER);
+  await page.mouse.move(hx - 8, hy - 8); await page.mouse.move(hx, hy, { steps: 3 });
+  await page.keyboard.down('Control'); await sleep(100);
+  await page.keyboard.press('z'); await sleep(1500);
+  await page.keyboard.up('Control'); await sleep(1500);
+  check('Ctrl+Z after Ctrl keydown: no stale preview', await page.evaluate(() => !AI.pv && !AI.hv), await page.evaluate(() => ({ pv: !!AI.pv, hv: !!AI.hv })));
   check('no page errors (desktop)', errors.length === 0, errors.slice());
   await page.close();
 

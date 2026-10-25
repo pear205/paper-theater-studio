@@ -485,7 +485,7 @@ function pushUndo(i=S.active,grp,parts=['mask'],endSession=true){const L=S.layer
   S.undo.push(snap(L,parts,grp));if(S.undo.length>UNDO_MAX)S.undo.shift();S.redo=[];
   if(endSession){L.gcBase=null;L.gcKeep=false}}
 // entries sharing a grp (hint stroke + its GrabCut, moving overlap out of several layers) go back in one step
-function undoStep(from,to){hideAsk();const top=from[from.length-1];if(!top)return false;S.aiLast=null;AI.pv=null; // drop stale hover preview
+function undoStep(from,to){hideAsk();const top=from[from.length-1];if(!top)return false;S.aiLast=null;S.aiSess=null;AI.hv=null;AI.pv=null; // drop stale hover preview
   const layers=new Set();
   do{const e=from.pop();if(S.layers.indexOf(e.L)<0)continue;
     to.push(snap(e.L,Object.keys(e.parts),e.grp));restoreSnap(e);layers.add(e.L)}
@@ -581,7 +581,7 @@ function pt(e){const r=view.getBoundingClientRect();return{x:(e.clientX-r.left)*
 let drag=null;
 view.addEventListener('pointerdown',e=>{
   if(!S.W||S.active===0)return;const p=pt(e),L=cur();view.setPointerCapture(e.pointerId);
-  if(S.tool==='ai'){aiClick(p,e.shiftKey||e.button===2?0:1,e.ctrlKey||e.metaKey);return}
+  if(S.tool==='ai'){aiClick(p,e.shiftKey||(e.button===2&&!e.ctrlKey)?0:1,e.ctrlKey||e.metaKey);return}
   if(S.tool==='rect'){if(!S.cv)return;drag={t:'rect',p0:p};S.draft={x:p.x,y:p.y,w:0,h:0}}
   else if(S.tool==='poly'){
     if(S.poly.length>2){const f=S.poly[0];if(Math.hypot(f.x-p.x,f.y-p.y)<S.W/60){closePoly();return}}
@@ -763,7 +763,9 @@ async function aiDecode(pts){
 const aiNear=()=>Math.max(6,S.W/120);
 // the current object = points + a decoded shape (gone after undo); add = Ctrl/"점 더하기" refines it
 const aiObj=L=>!!(L&&L.aiPts&&L.aiPts.length&&S.aiLast&&S.aiLast.L===L&&S.aiLast.masks[L.aiLevel||0]);
-const aiInside=(L,x,y)=>S.aiLast.masks[L.aiLevel||0].sel[Math.min(S.H-1,Math.max(0,y|0))*S.W+Math.min(S.W-1,Math.max(0,x|0))]>0;
+const aiKeep=L=>{const b=L.gcBase;if(!b.kp){const k=new Uint8Array(S.W*S.H),d=b.data;for(let i=0;i<k.length;i++)k[i]=d[i*4+3]>127?1:0;b.kp=k}return b.kp};
+// inside = any of the three candidates, as applied (tidied)
+const aiInside=(L,x,y)=>{const i=Math.min(S.H-1,Math.max(0,y|0))*S.W+Math.min(S.W-1,Math.max(0,x|0)),kp=aiKeep(L);return S.aiLast.masks.some(m=>aiSel(m,kp)[i]>0)};
 function aiHover(p,label,add){if(LP.on)p=null;AI.hv=p?{x:p.x,y:p.y,label,add:!!add}:null;if(!p){if(AI.pv){AI.pv=null;render()}return}if(!AI.pvJob){const j=AI.pvJob=aiHoverRun();j.finally(()=>{if(AI.pvJob===j)AI.pvJob=null})}} // cleared after the assignment: the run may end synchronously
 async function aiHoverRun(){
   try{while(AI.hv){
@@ -780,7 +782,7 @@ async function aiHoverRun(){
     sg.putImageData(id,0,0);
     if(!AI.pc||AI.pc.width!==S.W||AI.pc.height!==S.H)AI.pc=mk(S.W,S.H);
     const g=AI.pc.getContext('2d');g.clearRect(0,0,S.W,S.H);g.imageSmoothingEnabled=true;g.drawImage(sm,0,0,lw,lh,0,0,S.W,S.H);
-    if(AI.hv&&!S.aiBusy){AI.pv={L,src:S.src,sub:(fresh?S.selMode:L.gcMode)==='sub'};render()}
+    if(AI.hv===h&&!S.aiBusy){AI.pv={L,src:S.src,sub:(fresh?S.selMode:L.gcMode)==='sub'};render()}
     if(AI.hv===h)break}
   }catch(err){console.warn(err)}}
 // plain click inside the object: next candidate; outside: a new object; add (Ctrl / 점 더하기) or label 0: refine the object
@@ -800,7 +802,8 @@ async function aiClick(p,label,add){
     await aiEncode();if(!AI.emb||AI.src!==S.src)return;
     if(AI.pvJob)await AI.pvJob; // one decoder run at a time
     pushUndo(S.active,newGrp(),['mask'],false);
-    if(fresh){L.aiPts=[];L.gcBase=L.mask.getContext('2d').getImageData(0,0,S.W,S.H);L.gcKeep=false;L.gcMode=S.selMode;L.rect=null}
+    if(fresh){S.aiLast=null;L.aiPts=[];L.gcBase=L.mask.getContext('2d').getImageData(0,0,S.W,S.H);L.gcKeep=false;L.gcMode=S.selMode;L.rect=null;
+      if(!S.aiSess||S.aiSess.L!==L)S.aiSess={L,base:L.gcBase}} // session base = mask before the first object of this AI session
     L.aiPts=[...(L.aiPts||[]),[p.x,p.y,label]];
     const masks=await aiDecode(L.aiPts);S.aiLast={L,masks};L.aiLevel=aiPick(masks);
     aiApply(L);
@@ -808,7 +811,7 @@ async function aiClick(p,label,add){
   finally{S.aiBusy=false;busy.remove();refreshAi();render()}}
 // selected candidate added onto (or in 빼기 mode cut out of) the mask as it was before this object
 function aiApply(L){
-  const sub=L.gcMode==='sub',bd=L.gcBase.data,kp=new Uint8Array(S.W*S.H);for(let i=0;i<kp.length;i++)kp[i]=bd[i*4+3]>127?1:0;
+  const sub=L.gcMode==='sub',bd=L.gcBase.data,kp=aiKeep(L);
   const sel=aiSel(S.aiLast.masks[L.aiLevel||0],kp);
   const g=L.mask.getContext('2d'),out=g.createImageData(S.W,S.H),od=out.data;
   for(let i=0;i<sel.length;i++){const k=i*4;od[k]=od[k+1]=od[k+2]=255;od[k+3]=sel[i]?(sub?0:255):bd[k+3]}
@@ -834,7 +837,7 @@ function aiThumbs(){
     cg.putImageData(id,0,0);
     document.querySelectorAll(`[data-lv="${k}"] canvas,[data-mlv="${k}"] canvas`).forEach(t=>{const g=t.getContext('2d'),s=Math.min(t.width/cw,t.height/ch);
       g.drawImage(cc,(t.width-cw*s)/2,(t.height-ch*s)/2,cw*s,ch*s)})})}
-function aiEnd(){const L=cur();if(L&&L.aiPts&&L.aiPts.length){L.aiPts=[];L.gcBase=null}S.aiLast=null;AI.hv=null;AI.pv=null;refreshAi()}
+function aiEnd(){const L=cur();if(L&&L.aiPts&&L.aiPts.length){L.aiPts=[];L.gcBase=null}S.aiLast=null;S.aiSess=null;AI.hv=null;AI.pv=null;refreshAi()}
 document.querySelectorAll('[data-lv]').forEach(b=>b.onclick=()=>aiLevel(+b.dataset.lv));
 $('aiNew').onclick=()=>{aiEnd();render()};
 // Shift held while hovering previews a "not here" point
@@ -1233,7 +1236,7 @@ function gatherSync(){const ok=gatherOk(),t=S.tool;
   ['gather','gatherR','mGather'].forEach(id=>{const b=$(id);if(b)b.disabled=!ok});
   $('gatherR').hidden=t!=='rect'||!ok;$('mGather').hidden=t!=='rect'&&t!=='ai'}
 function gatherObj(){const L=cur(),n=S.W*S.H,o=new Uint8Array(n);
-  {const d=L.mask.getContext('2d').getImageData(0,0,S.W,S.H).data,b=L.gcBase.data;for(let i=0;i<n;i++)o[i]=d[i*4+3]>127&&b[i*4+3]<=127?1:0}
+  {const d=L.mask.getContext('2d').getImageData(0,0,S.W,S.H).data,b=(S.tool==='ai'&&S.aiSess&&S.aiSess.L===L?S.aiSess.base:L.gcBase).data;for(let i=0;i<n;i++)o[i]=d[i*4+3]>127&&b[i*4+3]<=127?1:0}
   return o}
 // pixels of NOT m that cannot reach the image border (4-connected)
 function enclosed(m){const W=S.W,H=S.H,n=W*H,out=new Uint8Array(n),st=new Int32Array(n);let sp=0;
@@ -1257,7 +1260,7 @@ function gatherRun(){if(!gatherOk())return;
   const ma=rd(A),ra=new Uint8Array(n);for(let k=0;k<n;k++)ra[k]=ma[k]||obj[k]?1:0;plan.push([A,ra,false]);
   plan.forEach(([i,r])=>{pushUndo(i,grp);const g=S.layers[i].mask.getContext('2d'),id=g.createImageData(W,S.H),d=id.data;
     for(let k=0;k<n;k++)if(r[k]){d[k*4]=d[k*4+1]=d[k*4+2]=d[k*4+3]=255}g.putImageData(id,0,0);S.layers[i].__d=true});
-  S.aiLast=null;AI.hv=null;AI.pv=null;const L=cur();L.aiPts=[];L.gcBase=null;L.gcKeep=false;
+  S.aiLast=null;S.aiSess=null;AI.hv=null;AI.pv=null;const L=cur();L.aiPts=[];L.gcBase=null;L.gcKeep=false;
   const fr=plan.filter(q=>q[2]).length;
   toast(`${A+1}번 레이어로 모았어요`+(fr?`. 앞 레이어 ${fr}곳에서 뺐어요`:''));
   if(typeof ptSched==='function')ptSched();refreshAi();render()}
@@ -1339,9 +1342,10 @@ const VM_NAME=['기본','흰 바탕','검은 바탕'],VM_SHORT=['기본','흰색
 const vmMode=()=>+$('viewMode').value||0;
 function vmSet(m){$('viewMode').value=m;$('viewMode').dispatchEvent(new Event('change',{bubbles:true}));vmSync();render()}
 function vmSync(){
-  const m=vmMode(),show=!!S.W&&S.active>0&&!LP.on;
-  document.querySelectorAll('#vmSeg [data-vm]').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.vm===m));
-  $('mVm').textContent=VM_SHORT[m];$('mVm').setAttribute('aria-pressed',m>0);
+  const show=!!S.W&&S.active>0&&!LP.on,m=show?vmMode():0; // layer 1 / overview: only 기본 applies
+  document.querySelectorAll('#vmSeg [data-vm]').forEach(b=>{b.setAttribute('aria-pressed',+b.dataset.vm===m);b.disabled=!show&&+b.dataset.vm>0});
+  $('mVm').textContent=VM_SHORT[m];$('mVm').setAttribute('aria-pressed',m>0);$('mVm').disabled=!show;
+  $('lgOth').disabled=m>0;
   $('legend').hidden=!show;$('legend').classList.toggle('vm',m>0);
   $('lgCut').setAttribute('aria-pressed',$('showCut').checked);$('lgOth').setAttribute('aria-pressed',$('showOthers').checked);
   $('lgAi').hidden=S.tool!=='ai';
@@ -1350,7 +1354,7 @@ document.querySelectorAll('#vmSeg [data-vm]').forEach(b=>b.onclick=()=>vmSet(+b.
 $('mVm').onclick=()=>vmSet((vmMode()+1)%3);
 ['Cut','Oth'].forEach(k=>{const c=$(k==='Cut'?'showCut':'showOthers');$('lg'+k).onclick=()=>{c.checked=!c.checked;c.dispatchEvent(new Event('change',{bubbles:true}))}});
 $('showCut').addEventListener('change',vmSync);$('showOthers').addEventListener('change',vmSync);
-hook('view',vmSync);hook('buttons',vmSync);hook('setup',vmSync);
+hook('view',vmSync);hook('buttons',vmSync);hook('setup',vmSync);hook('layers',vmSync);
 hook('render',()=>{
   vmSync();
   const m=vmMode();if(!m||!S.W||S.active===0||LP.on)return;
