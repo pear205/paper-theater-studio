@@ -102,6 +102,16 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .lrow .th{width:44px;height:29px;border-radius:4px;border:1px solid var(--line);background:#1f2622;display:block}
 #lpTip{position:absolute;pointer-events:none;z-index:3;background:rgba(0,0,0,.8);color:#fff;font-size:12px;padding:3px 8px;border-radius:6px;white-space:nowrap;border-left:4px solid #fff}
 #view.lpOn{cursor:pointer}
+/* ---------- desktop zoom ---------- */
+#view{transform-origin:0 0}
+#viewBox.zm{overflow:hidden;border-radius:4px}
+#viewBox.zsp #view{cursor:grab}
+#viewBox.zpan #view{cursor:grabbing}
+#zctl{position:absolute;right:8px;bottom:8px;z-index:2;display:flex;gap:1px;background:rgba(0,0,0,.62);border-radius:6px;padding:2px;color:#fff;font-size:12px}
+#zctl button{background:transparent;color:#fff;border:0;padding:2px 8px;min-width:26px;justify-content:center;border-radius:4px;font-size:13px;line-height:1.3}
+#zctl button:hover{background:rgba(255,255,255,.22)}
+#zctl[hidden]{display:none}
+@media (max-width:767px){#zctl{display:none}}
 /* @F1 css */
 /* ---- */
 /* @F2 css */
@@ -167,7 +177,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
         <span class="mm" id="sizeLabel"></span>
       </div>
       <div id="editPane">
-        <div id="editWrap"><div id="viewBox"><canvas id="view"></canvas><span id="layerTag" aria-live="polite"></span><span id="lpTip" hidden></span></div></div>
+        <div id="editWrap"><div id="viewBox"><canvas id="view"></canvas><span id="layerTag" aria-live="polite"></span><span id="lpTip" hidden></span><div id="zctl" hidden><button id="zOut" title="축소 (Ctrl+-)" aria-label="축소">−</button><button id="zPct" title="클릭하면 전체 보기 (Ctrl+0)">100%</button><button id="zIn" title="확대 (Ctrl++)" aria-label="확대">+</button></div></div></div>
         <div class="hint-bar" id="hint"></div>
       </div>
       <div id="pvPane" hidden>
@@ -1223,6 +1233,45 @@ function gatherRun(){if(!gatherOk())return;
   if(typeof ptSched==='function')ptSched();refreshAi();render()}
 ['gather','gatherR','mGather'].forEach(id=>$(id).addEventListener('click',gatherRun));
 hook('buttons',gatherSync);hook('render',gatherSync); // GrabCut result lands via render()
+/* ---------- desktop zoom ---------- */
+// wheel / Ctrl+/- zoom, Space+drag or middle-drag pan; shares Z / zApply with the phone pinch
+const zbox=$('viewBox');let zhov=false,zsp=false,zpan=null,zmx=0,zmy=0;
+const zTxt=e=>e.target.closest&&e.target.closest('input,textarea,select,[contenteditable]');
+function zUi(){zbox.classList.toggle('zm',Z.z>1);$('zPct').textContent=Math.round(Z.z*100)+'%';$('zctl').hidden=!S.W}
+function zAt(nz,mx,my){ // zoom to nz keeping the image point under (mx,my) fixed
+  nz=Math.max(1,Math.min(8,nz));const r=zbox.getBoundingClientRect(),ax=(mx-r.left-Z.tx)/Z.z,ay=(my-r.top-Z.ty)/Z.z;
+  Z.z=nz;Z.tx=mx-r.left-ax*nz;Z.ty=my-r.top-ay*nz;zApply()}
+const zCtr=()=>{const r=zbox.getBoundingClientRect();return zhov?[zmx,zmy]:[r.left+r.width/2,r.top+r.height/2]};
+zbox.addEventListener('wheel',e=>{
+  if(!S.W)return;e.preventDefault();
+  const dy=e.deltaY*(e.deltaMode===1?33:e.deltaMode===2?400:1);
+  zAt(Z.z*Math.exp(-dy*(e.ctrlKey?.01:.0014)),e.clientX,e.clientY)},{passive:false});
+$('zIn').onclick=()=>zAt(Z.z*1.25,...zCtr());$('zOut').onclick=()=>zAt(Z.z/1.25,...zCtr());$('zPct').onclick=()=>zReset();
+zbox.addEventListener('pointerenter',e=>{if(e.pointerType!=='touch')zhov=true});
+zbox.addEventListener('pointerleave',e=>{if(e.pointerType!=='touch')zhov=false});
+zbox.addEventListener('pointermove',e=>{zmx=e.clientX;zmy=e.clientY},true);
+zbox.addEventListener('mousedown',e=>{if(e.button===1)e.preventDefault()}); // no middle-click autoscroll
+zbox.addEventListener('auxclick',e=>{if(e.button===1)e.preventDefault()});
+zbox.addEventListener('pointerdown',e=>{
+  if(e.pointerType==='touch'||!(e.button===1||e.button===0&&zsp)||e.target.closest('#zctl'))return;
+  e.preventDefault();e.stopPropagation();zbox.setPointerCapture(e.pointerId);
+  zpan={id:e.pointerId,x:e.clientX,y:e.clientY,tx:Z.tx,ty:Z.ty};zbox.classList.add('zpan')},true);
+zbox.addEventListener('pointermove',e=>{
+  if(!zpan||zpan.id!==e.pointerId)return;e.stopPropagation();
+  Z.tx=zpan.tx+e.clientX-zpan.x;Z.ty=zpan.ty+e.clientY-zpan.y;zApply()},true);
+const zEnd=e=>{if(zpan&&zpan.id===e.pointerId){e.stopPropagation();zpan=null;zbox.classList.remove('zpan')}};
+zbox.addEventListener('pointerup',zEnd,true);zbox.addEventListener('pointercancel',zEnd,true);
+const zSpOff=()=>{zsp=false;zbox.classList.remove('zsp')};
+addEventListener('keydown',e=>{
+  if(e.code==='Space'&&!e.ctrlKey&&!e.metaKey&&!e.altKey){if(zsp||zhov&&S.W&&!zTxt(e)){e.preventDefault();if(e.target.tagName==='BUTTON')e.target.blur();zsp=true;zbox.classList.add('zsp')}return}
+  if(!(e.ctrlKey||e.metaKey)||e.altKey||(e.target.closest&&e.target.closest('input[type=text],input[type=number],textarea,[contenteditable]')))return;
+  if(e.code==='Digit0'||e.code==='Numpad0'){if(zhov||Z.z>1){zReset();if(zhov)e.preventDefault()}}
+  else if(zhov&&S.W&&['Equal','NumpadAdd','Minus','NumpadSubtract'].includes(e.code)){e.preventDefault();zAt(Z.z*(/Equal|Add/.test(e.code)?1.25:.8),zmx,zmy)}
+},true);
+addEventListener('keyup',e=>{if(e.code==='Space')zSpOff()});addEventListener('blur',zSpOff);
+const zHint=' 휠로 확대, 스페이스+끌기로 이동';
+const zHintFix=()=>{const h=$('hint');if(S.W&&h.textContent&&!LP.on&&!f2Phone()&&!h.textContent.includes('휠로'))h.textContent+=zHint};
+hook('buttons',zHintFix);hook('layers',zHintFix);hook('render',zHintFix);hook('setup',zUi);
 /* @F1 js — 가려진 부분 채우기 */
 // multi-resolution push-pull: fills pixels where hole[p] from the others only. d=RGBA, returns RGB floats
 function f1PushPull(d,hole,w,h){
@@ -1254,10 +1303,10 @@ const Z={z:1,tx:0,ty:0};
 function zApply(){
   const w=view.offsetWidth,h=view.offsetHeight;
   Z.tx=Math.min(0,Math.max(w-w*Z.z,Z.tx));Z.ty=Math.min(0,Math.max(h-h*Z.z,Z.ty));
-  view.style.transform=Z.z===1?'':`translate(${Z.tx}px,${Z.ty}px) scale(${Z.z})`}
-function zReset(){Z.z=1;Z.tx=Z.ty=0;view.style.transform=''}
+  view.style.transform=Z.z===1?'':`translate(${Z.tx}px,${Z.ty}px) scale(${Z.z})`;zUi()}
+function zReset(){Z.z=1;Z.tx=Z.ty=0;view.style.transform='';zUi()}
 hook('setup',zReset);
-addEventListener('resize',()=>{if(!f2Phone())zReset();else if(Z.z>1)zApply()});
+addEventListener('resize',()=>{if(Z.z>1)zApply()});
 // bar -> existing buttons (no duplicated logic)
 const bt=(id,fn)=>$(id).addEventListener('click',fn);
 document.querySelectorAll('[data-mt]').forEach(b=>b.addEventListener('click',()=>{const o=document.querySelector(`#tools [data-tool="${b.dataset.mt}"]`);if(o&&!o.disabled)o.click()}));
