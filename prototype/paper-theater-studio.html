@@ -138,6 +138,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
 /* ---- */
 /* @F4 css */
 #depthState{flex-basis:100%}
+#depthObjL{white-space:nowrap}
+#depthObjL input{margin:0 2px 0 0;vertical-align:-2px;width:13px;height:13px}
 /* ---- */
 </style>
 
@@ -188,7 +190,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
           <button id="addLayer">레이어 추가</button>
           <button id="depthSplit">✦깊이로 자동 나누기 (AI)</button>
           <span class="note" id="depthState" aria-live="polite" hidden></span>
-          <span class="note">번호가 클수록 앞쪽이에요. 숫자는 뒤판에서 떨어진 거리(mm)예요.</span>
+          <span class="note">번호가 클수록 앞쪽이에요. 숫자는 뒤판에서 떨어진 거리(mm)예요. <label id="depthObjL" title="AI 선택 모델로 물체를 찾아서, 한 물체가 여러 레이어로 갈라지지 않게 해요"><input id="depthObj" type="checkbox" checked> 물체 단위로 맞추기</label></span>
         </div>
       </div>
 
@@ -1405,11 +1407,17 @@ async function depthClick(){
   if(aiBlocked()){toast('이 화면에서는 깊이 AI를 쓸 수 없어요');return}
   if(!S.cv){toast('OpenCV를 불러오는 중이에요. 잠시 뒤에 눌러 주세요');return}
   if(S.layers.length<2){toast('레이어가 2장 이상 있어야 해요');return}
-  if(DEPTH.state==='ready'){depthConfirm();return}
-  if(await depthCached()){depthLoad();return}
-  DEPTH.f16=await depthF16();const mb=DEPTH.f16?DEPTH_MB.fp16:DEPTH_MB.q8,keep=await aiCanCache();
-  ask(keep?`깊이 AI 모델(약 ${mb}MB)을 처음 한 번 받아요. 받은 뒤에는 브라우저에 저장돼서 다음부터는 바로 열려요.`
-    :`깊이 AI 모델(약 ${mb}MB)을 받아요. 파일을 바로 연 화면이라 저장되지 않아서, 열 때마다 다시 받아요.`,[['받기',depthLoad],['나중에',()=>{}]])}
+  const go=()=>DEPTH.state==='ready'?depthConfirm():depthLoad();
+  // one question covers both downloads: the depth model and (for 물체 단위로 맞추기) the AI select model
+  const needD=DEPTH.state!=='ready'&&!(await depthCached()),needA=$('depthObj').checked&&AI.state!=='ready'&&AI.state!=='loading'&&!(await aiCached());
+  if(!needD&&!needA){go();return}
+  if(needD)DEPTH.f16=await depthF16();
+  const dmb=DEPTH.f16?DEPTH_MB.fp16:DEPTH_MB.q8,keep=await aiCanCache();
+  const tail=keep?' 받은 뒤에는 브라우저에 저장돼서 다음부터는 바로 열려요.':' 파일을 바로 연 화면이라 저장되지 않아서, 열 때마다 다시 받아요.';
+  if(!needA){ask(`깊이 AI 모델(약 ${dmb}MB)을 ${keep?'처음 한 번 ':''}받아요.`+tail,[['받기',go],['나중에',()=>{}]]);return}
+  const what=needD?`깊이 AI 모델(약 ${dmb}MB)과 물체 찾기용 AI 선택 모델(약 17MB)`:'물체 찾기용 AI 선택 모델(약 17MB)';
+  ask(`물체 단위로 맞추려면 ${what}을 ${keep?'처음 한 번 ':''}받아요.`+tail,
+    [['받기',go],['깊이만 쓰기',()=>{$('depthObj').checked=false;go()}],['나중에',()=>{}]])}
 async function depthLoad(){
   DEPTH.state='loading';DEPTH.busy=true;DEPTH.files={};refreshButtons();depthSay('깊이 AI 모델 받는 중… 0%');
   const t0=performance.now();
@@ -1465,8 +1473,61 @@ function depthThresholds(d,n){
   for(let k=1;k<n-1;k++){const t0=rq(k/(n-1)),c=Math.round(t0*B),v=valley(c-5,c+5);let t=v>0&&sm[v]<sm[c]*.85?v/B:t0;
     t=Math.max(t,th[k-1]+.03);th.push(Math.min(t,.97))}
   return {lo,sc,th}}
-function depthMasks(d,n){
-  const cv=S.cv,W=S.W,H=S.H,{lo,sc,th}=depthThresholds(d,n),ppm=pxPerMm(),mats=[];
+// band per pixel: -1 = far (layer 1 only), k = layer k+2's own band th[k] <= depth < th[k+1]
+function depthBands(d,n){
+  const {lo,sc,th}=depthThresholds(d,n),lab=new Int8Array(d.length),m=th.length;
+  for(let i=0;i<d.length;i++){const v=(d[i]-lo)*sc;let k=-1;while(k+1<m&&v>=th[k+1])k++;lab[i]=k}
+  return {lab,lo,sc,th}}
+const bandOf=(v,th)=>{let k=-1;while(k+1<th.length&&v>=th[k+1])k++;return k};
+const DEPTH_SPREAD=.3; // max 10-90% depth range (normalized) of one object
+// 물체 단위로 맞추기: SAM on a point grid; every pixel of a found object takes the band of the object's median depth
+async function depthObjects(d,B,say){
+  const T=AI.T,W=S.W,H=S.H,{lab,lo,sc,th}=B,rs=AI.inputs.reshaped_input_sizes[0],GX=16,GY=10,BATCH=8,pts=[];
+  for(let j=0;j<GY;j++)for(let i=0;i<GX;i++){const x=Math.round((i+.5)*W/GX),y=Math.round((j+.5)*H/GY);if(lab[y*W+x]>=0)pts.push([x,y])}
+  const objs=[];let lw=0,lh=0,lw0=0,lh0=0;
+  for(let b=0;b<pts.length;b+=BATCH){
+    say(`물체 찾는 중… ${b}/${pts.length}`);await tick();
+    const P=pts.slice(b,b+BATCH),np=P.length;
+    const out=await AI.model({...AI.emb,input_points:new T.Tensor('float32',P.flatMap(p=>[p[0]/W*rs[1],p[1]/H*rs[0]]),[1,np,1,2]),
+      input_labels:new T.Tensor('int64',P.map(()=>1n),[1,np,1])});
+    const dm=out.pred_masks.dims,pd=out.pred_masks.data,iou=out.iou_scores.data;lh0=dm[3];lw0=dm[4];
+    lw=Math.round(rs[1]/1024*lw0);lh=Math.round(rs[0]/1024*lh0);const tot=lw*lh;
+    for(let p=0;p<np;p++){
+      const c=[];for(let k=0;k<3;k++){const o=(p*3+k)*lh0*lw0;let a=0;for(let y=0;y<lh;y++)for(let x=0;x<lw;x++)if(pd[o+y*lw0+x]>0)a++;c.push({k,area:a,iou:+iou[p*3+k]})}
+      c.sort((x,y)=>y.area-x.area);const pick=c[aiPick(c)];
+      if(pick.area<tot*.002||pick.area>tot*.4)continue;
+      const o=(p*3+pick.k)*lh0*lw0,lg=new Float32Array(tot),bin=new Uint8Array(tot);let x0=lw,y0=lh,x1=-1,y1=-1;
+      for(let y=0;y<lh;y++)for(let x=0;x<lw;x++){const v=pd[o+y*lw0+x],q=y*lw+x;lg[q]=v;if(v>0){bin[q]=1;if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}}
+      const ob={lg,bin,area:pick.area,iou:pick.iou,box:[x0,y0,x1,y1]};
+      // same object found from another grid point: keep the better-scored one
+      let dup=-1;for(let q=0;q<objs.length&&dup<0;q++){const e=objs[q],bx0=Math.max(x0,e.box[0]),by0=Math.max(y0,e.box[1]),bx1=Math.min(x1,e.box[2]),by1=Math.min(y1,e.box[3]);
+        if(bx1<bx0||by1<by0)continue;let I=0;for(let y=by0;y<=by1;y++)for(let x=bx0;x<=bx1;x++){const r=y*lw+x;if(bin[r]&&e.bin[r])I++}
+        if(I/(ob.area+e.area-I)>.8)dup=q}
+      if(dup<0)objs.push(ob);else if(ob.iou>objs[dup].iou)objs[dup]=ob}}
+  say(`물체 ${objs.length}개를 맞추는 중…`);await tick();
+  objs.sort((a,b)=>b.area-a.area);
+  // full-size pixels of each object: bilinear on the low-res logits gives smooth edges without the full-size post-processing
+  const sx=lw/W,sy=lh/H,px=objs.map(ob=>{const [x0,y0,x1,y1]=ob.box,lg=ob.lg,o=[];
+    const X0=Math.max(0,Math.floor((x0-1)/sx)),X1=Math.min(W-1,Math.ceil((x1+2)/sx)),Y0=Math.max(0,Math.floor((y0-1)/sy)),Y1=Math.min(H-1,Math.ceil((y1+2)/sy));
+    for(let y=Y0;y<=Y1;y++){const v=Math.min(lh-1,Math.max(0,(y+.5)*sy-.5)),v0=Math.floor(v),v1=Math.min(lh-1,v0+1),fy=v-v0;
+      for(let x=X0;x<=X1;x++){const u=Math.min(lw-1,Math.max(0,(x+.5)*sx-.5)),u0=Math.floor(u),u1=Math.min(lw-1,u0+1),fx=u-u0;
+        if((lg[v0*lw+u0]*(1-fx)+lg[v0*lw+u1]*fx)*(1-fy)+(lg[v1*lw+u0]*(1-fx)+lg[v1*lw+u1]*fx)*fy>0)o.push(y*W+x)}}
+    ob.lg=ob.bin=null;return o});
+  // band of the median depth. Ground and other surfaces running from far to near (wide depth spread) keep their per-pixel bands
+  const band=px.map(o=>{if(o.length<50)return null;const v=[];for(let j=0;j<o.length;j+=3)v.push(d[o[j]]);v.sort((a,b)=>a-b);
+    const q=p=>(v[Math.floor(p*(v.length-1))]-lo)*sc;return q(.9)-q(.1)>DEPTH_SPREAD?null:bandOf(q(.5),th)});
+  DEPTH.wide=band.filter(b=>b===null).length;
+  // large to small, so smaller objects override the larger ones they sit on;
+  // a part found on its own (a horn, an arm) that lies mostly inside a larger object goes with that object
+  const own=new Int16Array(W*H).fill(-1);
+  objs.forEach((_,id)=>{if(band[id]===null)return;const o=px[id],c={};let inn=0;
+    for(const i of o)if(own[i]>=0){inn++;const b=band[own[i]];c[b]=(c[b]||0)+1}
+    if(inn>=o.length*.8){let bb=band[id],m=-1;for(const b in c)if(c[b]>m){m=c[b];bb=+b}band[id]=bb}
+    for(const i of o)own[i]=id});
+  for(let i=0;i<own.length;i++){const o=own[i];if(o>=0)lab[i]=band[o]}
+  return objs.length}
+function depthMasks(B,n){
+  const cv=S.cv,W=S.W,H=S.H,{lab,th}=B,ppm=pxPerMm(),mats=[];
   const odd=v=>Math.max(3,Math.round(v)|1),minA=W*H*.002,res=[];
   const kS=cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(odd(ppm*1.5),odd(ppm*1.5)));
   const kL=cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(odd(ppm*3),odd(ppm*3)));mats.push(kS,kL);
@@ -1475,12 +1536,13 @@ function depthMasks(d,n){
     try{const nl=cv.connectedComponentsWithStats(m,lab,stats,cen,8,cv.CV_32S),keep=new Uint8Array(nl),ld=lab.data32S,md=m.data;
       for(let j=1;j<nl;j++)keep[j]=stats.intAt(j,cv.CC_STAT_AREA)>=minA?1:0;
       for(let i=0;i<md.length;i++)md[i]=md[i]&&keep[ld[i]]?255:0}finally{lab.delete();stats.delete();cen.delete()}};
-  // everything below the topmost pixel of each column, so pieces reach the bottom border.
+  // below the topmost pixel of each column, down to the bottom border, but only over this band or nearer ones:
+  // farther things under the top line stay on their own layers (no straight cliffs at the band's ends).
   // pieces hanging from the top edge (tree canopies) are already held by the border and don't count as the top
-  const columns=m=>{const lab=new cv.Mat();
+  const columns=(m,near)=>{const lab=new cv.Mat();
     try{const nl=cv.connectedComponents(m,lab,8,cv.CV_32S),ld=lab.data32S,md=m.data,hang=new Uint8Array(nl);
       for(let x=0;x<W;x++)if(ld[x])hang[ld[x]]=1;
-      for(let x=0;x<W;x++){let y=0;while(y<H&&(!md[y*W+x]||hang[ld[y*W+x]]))y++;for(;y<H;y++)md[y*W+x]=255}}finally{lab.delete()}};
+      for(let x=0;x<W;x++){let y=0;while(y<H&&(!md[y*W+x]||hang[ld[y*W+x]]))y++;for(;y<H;y++)if(near[y*W+x])md[y*W+x]=255}}finally{lab.delete()}};
   // fill enclosed holes smaller than maxHole
   const holes=m=>{const inv=new cv.Mat(),lab=new cv.Mat(),stats=new cv.Mat(),cen=new cv.Mat();
     try{cv.bitwise_not(m,inv);const nl=cv.connectedComponentsWithStats(inv,lab,stats,cen,4,cv.CV_32S),fill=new Uint8Array(nl),ld=lab.data32S,md=m.data;
@@ -1488,15 +1550,15 @@ function depthMasks(d,n){
         fill[j]=l>0&&t>0&&l+w<W&&t+h<H&&stats.intAt(j,cv.CC_STAT_AREA)<W*H*.01?1:0}
       for(let i=0;i<md.length;i++)if(fill[ld[i]])md[i]=255}finally{inv.delete();lab.delete();stats.delete();cen.delete()}};
   try{
-    let prev=null;
-    for(let k=0;k<n-1;k++){const t=lo+th[k]/sc,a=new Uint8Array(W*H);for(let i=0;i<a.length;i++)a[i]=d[i]>=t?255:0;
+    // only the layer's own band shapes its outline; nearer things are included only below its top line,
+    // where they hide part of it (filled later), and never extend its outline
+    for(let k=0;k<n-1;k++){const a=new Uint8Array(W*H),near=new Uint8Array(W*H);for(let i=0;i<a.length;i++){a[i]=lab[i]===k?255:0;near[i]=lab[i]>=k?1:0}
       const m=cv.matFromArray(H,W,cv.CV_8UC1,a);mats.push(m);
       cv.morphologyEx(m,m,cv.MORPH_OPEN,kS);cv.morphologyEx(m,m,cv.MORPH_CLOSE,kS);islands(m);
-      columns(m);
+      columns(m,near);
       // hand cutting: no spikes or notches thinner than ~3mm
-      cv.morphologyEx(m,m,cv.MORPH_OPEN,kL);cv.morphologyEx(m,m,cv.MORPH_CLOSE,kL);islands(m);columns(m);holes(m);
-      const out=new Uint8Array(m.data);if(prev)for(let i=0;i<out.length;i++)if(!prev[i])out[i]=0;
-      res.push(out);prev=out}
+      cv.morphologyEx(m,m,cv.MORPH_OPEN,kL);cv.morphologyEx(m,m,cv.MORPH_CLOSE,kL);islands(m);columns(m,near);holes(m);
+      res.push(new Uint8Array(m.data))}
   }finally{mats.forEach(x=>x.delete())}
   DEPTH.info={th:th.map(v=>+v.toFixed(3)),far:+th[0].toFixed(3)};
   return res}
@@ -1508,8 +1570,18 @@ async function depthRun(){
   try{
     await tick();const t0=performance.now();
     const d=await depthMap(src);if(S.src!==src){depthSay('');return}
+    const n=S.layers.length,B=depthBands(d,n);let objs=null;DEPTH.objMs=null;
+    if($('depthObj').checked){const t2=performance.now();
+      if(AI.state==='off'||AI.state==='error'){const iv=setInterval(()=>depthSay(`물체 찾기 AI 모델 받는 중… ${aiPct()}%`),300);try{await aiLoad()}finally{clearInterval(iv)}}
+      while(AI.state==='loading'){depthSay(`물체 찾기 AI 모델 받는 중… ${aiPct()}%`);await new Promise(r=>setTimeout(r,300))}
+      if(AI.state==='ready'){depthSay('물체를 찾으려고 그림을 분석하는 중…');await aiEncode()}
+      if(S.src!==src){depthSay('');return}
+      if(AI.state==='ready'&&AI.emb&&AI.src===src){objs=await depthObjects(d,B,depthSay);DEPTH.objMs=Math.round(performance.now()-t2)}
+      else toast('AI 선택 모델을 못 써서 깊이만으로 나눠요');
+      if(S.src!==src){depthSay('');return}}
     depthSay('레이어로 나누는 중…');await tick();
-    const t1=performance.now(),n=S.layers.length,ms=depthMasks(d,n);DEPTH.maskMs=Math.round(performance.now()-t1);DEPTH.totalMs=Math.round(performance.now()-t0);
+    const t1=performance.now(),ms=depthMasks(B,n);DEPTH.maskMs=Math.round(performance.now()-t1);DEPTH.totalMs=Math.round(performance.now()-t0);
+    DEPTH.info.objects=objs;DEPTH.info.wide=objs===null?null:DEPTH.wide;DEPTH.lab=B.lab;
     const write=()=>{if(S.src!==src||S.layers.length!==n)return;
     const grp=newGrp();S.aiLast=null;
     ms.forEach((a,j)=>{const i=j+1,L=S.layers[i];pushUndo(i,grp);L.aiPts=[];L.rect=null;
