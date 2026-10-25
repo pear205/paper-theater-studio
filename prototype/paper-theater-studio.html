@@ -409,7 +409,7 @@ document.addEventListener('keydown',e=>{
   else if(e.code==='KeyY'){e.preventDefault();redo()}
 });
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape'&&S.tool==='ai'&&!(e.target.closest&&e.target.closest('input,textarea'))){aiEnd();render()}
+  if(e.key==='Escape'&&S.tool==='ai'&&!LP.on&&!(e.target.closest&&e.target.closest('input,textarea'))){aiEnd();render()}
 });
 $('runGC').onclick=()=>runGrabCut();
 function cur(){return S.layers[S.active]}
@@ -445,7 +445,7 @@ function pushUndo(i=S.active,grp,parts=['mask'],endSession=true){const L=S.layer
   S.undo.push(snap(L,parts,grp));if(S.undo.length>UNDO_MAX)S.undo.shift();S.redo=[];
   if(endSession){L.gcBase=null;L.gcKeep=false}}
 // entries sharing a grp (hint stroke + its GrabCut, moving overlap out of several layers) go back in one step
-function undoStep(from,to){hideAsk();const top=from[from.length-1];if(!top)return false;S.aiLast=null;
+function undoStep(from,to){hideAsk();const top=from[from.length-1];if(!top)return false;S.aiLast=null;AI.pv=null; // drop stale hover preview
   const layers=new Set();
   do{const e=from.pop();if(S.layers.indexOf(e.L)<0)continue;
     to.push(snap(e.L,Object.keys(e.parts),e.grp));restoreSnap(e);layers.add(e.L)}
@@ -719,12 +719,12 @@ async function aiDecode(pts){
   return res.sort((a,b)=>b.area-a.area)}
 // hover preview: low-res (256px) masks only, one decode in flight, always the newest position
 const aiNear=()=>Math.max(6,S.W/120);
-function aiHover(p,label){AI.hv=p?{x:p.x,y:p.y,label}:null;if(!p){if(AI.pv){AI.pv=null;render()}return}AI.pvJob=AI.pvJob||aiHoverRun()}
+function aiHover(p,label){if(LP.on)p=null;AI.hv=p?{x:p.x,y:p.y,label}:null;if(!p){if(AI.pv){AI.pv=null;render()}return}AI.pvJob=AI.pvJob||aiHoverRun()}
 async function aiHoverRun(){
   try{while(AI.hv){
     const h=AI.hv,L=cur(),pts=[...(L&&L.aiPts||[]),[h.x,h.y,h.label]],q=pts[pts.length-2];
     // nothing to show: not ready, a click is running, a "not here" point with no object, or a spot where a click only cycles
-    if(S.tool!=='ai'||!L||S.active===0||AI.state!=='ready'||!AI.emb||AI.src!==S.src||AI.encoding||S.aiBusy||(pts.length===1&&!h.label)||
+    if(S.tool!=='ai'||LP.on||!L||S.active===0||AI.state!=='ready'||!AI.emb||AI.src!==S.src||AI.encoding||S.aiBusy||(pts.length===1&&!h.label)||
       (q&&q[2]===h.label&&S.aiLast&&S.aiLast.L===L&&Math.hypot(q[0]-h.x,q[1]-h.y)<aiNear())){if(AI.pv){AI.pv=null;render()}break}
     const out=await aiRun(pts),[,,,lh0,lw0]=out.pred_masks.dims,d=out.pred_masks.data,rs=AI.inputs.reshaped_input_sizes[0];
     const lw=Math.round(rs[1]/1024*lw0),lh=Math.round(rs[0]/1024*lh0),c=[];
@@ -1101,6 +1101,7 @@ let lpT=null;
 function lpThumbs(){
   if(!S.W)return;if(!lpT)lpT=mk(88,60);
   const s=Math.min(88/S.W,60/S.H),w=S.W*s,h=S.H*s,x=(88-w)/2,y=(60-h)/2;
+  LPD.forEach(L=>{if(!S.layers.includes(L))LPD.delete(L)});
   S.layers.forEach((L,i)=>{if(!LPD.has(L))return;LPD.delete(L);const c=LPT.get(L);if(!c)return;
     const g=c.getContext('2d');g.imageSmoothingQuality='high';g.globalAlpha=1;g.fillStyle='#1f2622';g.fillRect(0,0,88,60);
     if(i===0){g.drawImage(S.src,x,y,w,h);return}
@@ -1138,14 +1139,14 @@ function lpPaint(){vctx.clearRect(0,0,S.W,S.H);vctx.drawImage(LP.base,0,0);if(LP
 function lpSync(){$('tabOv').setAttribute('aria-pressed',LP.on);$('mOv').setAttribute('aria-pressed',LP.on);view.classList.toggle('lpOn',LP.on)}
 function lpHint(){const h=$('hint');if(!S.W)return;
   if(LP.on)h.textContent=LPOV;else if(!h.textContent.includes('Alt+클릭')&&!matchMedia('(max-width:767px)').matches)h.textContent+=LPHINT}
-function lpOff(){LP.on=false;LP.hover=-1;LP.dn=null;$('lpTip').hidden=true;lpSync()}
+function lpOff(){if(LP.cutSkip){LP.cutSkip=false;S.cutDirty=true}LP.on=false;LP.hover=-1;LP.dn=null;$('lpTip').hidden=true;lpSync()}
 function lpSet(on){
   if(on&&!S.W)return;
   if(!on){if(LP.on){lpOff();refreshButtons();render()}return}
   if(S.view!=='edit')setView('edit');
-  LP.on=true;LP.act=S.active;LP.hover=-1;S.poly=[];lpSync();lpEnsure();LP.own=true;render();LP.own=false}
+  aiHover(null);LP.on=true;LP.ver++;LP.act=S.active;LP.hover=-1;S.poly=[];lpSync();lpEnsure();LP.own=true;render();LP.own=false}
 function lpPick(j){if(j<0||j>=S.layers.length)return;
-  lpOff();S.active=j;S.poly=[];renderLayers();render();toast(`${j+1}번 · ${S.layers[j].name} 레이어로 이동했어요`)}
+  lpOff();S.active=j;S.poly=[];refreshButtons();renderLayers();render();toast(`${j+1}번 · ${S.layers[j].name} 레이어로 이동했어요`)}
 function lpTip(e,j){const t=$('lpTip');if(j<0){t.hidden=true;return}
   t.textContent=`${j+1}번 · ${S.layers[j].name}`;t.style.borderLeftColor=layerColor(j);t.hidden=false;
   const vb=$('viewBox').getBoundingClientRect();let x=e.clientX-vb.left+14;if(x+t.offsetWidth>vb.width)x=e.clientX-vb.left-t.offsetWidth-10;
@@ -1156,8 +1157,8 @@ addEventListener('keydown',e=>{if(e.key==='Escape'&&LP.on)lpSet(false)});
 const lpStop=e=>{e.stopImmediatePropagation();e.preventDefault()};
 view.addEventListener('pointerdown',e=>{
   if(!S.W)return;
-  if(LP.on){lpStop(e);LP.dn=(LP.dn||e.button!==0)?null:{id:e.pointerId,x:e.clientX,y:e.clientY};return}
-  if(e.altKey&&e.button===0&&e.pointerType==='mouse'){lpStop(e);const j=lpAt(pt(e));if(j>=0)lpPick(j)}
+  if(LP.on){lpStop(e);LP.dn=(e.button===0&&e.isPrimary)?{id:e.pointerId,x:e.clientX,y:e.clientY}:null;return}
+  if(e.altKey&&e.button===0&&e.pointerType==='mouse'){lpStop(e);LP.ver++;const j=lpAt(pt(e));if(j>=0)lpPick(j)}
 },true);
 view.addEventListener('pointerup',e=>{
   if(!LP.on)return;lpStop(e);const d=LP.dn;LP.dn=null;
@@ -1167,14 +1168,16 @@ view.addEventListener('pointermove',e=>{
   const j=lpAt(pt(e));lpTip(e,j);if(j!==LP.hover){LP.hover=j;lpPaint()}},true);
 view.addEventListener('pointerleave',()=>{if(LP.on){$('lpTip').hidden=true;if(LP.hover>=0){LP.hover=-1;lpPaint()}}});
 ['pointercancel','dblclick','contextmenu'].forEach(n=>view.addEventListener(n,e=>{if(LP.on){if(n==='pointercancel')LP.dn=null;lpStop(e)}},true));
-hook('setup',()=>{lpOff();LP.map=null;LP.ver++;lpDirtyAll()});
+hook('setup',()=>{lpOff();LP.map=null;LP.ver++;LPD.clear();lpDirtyAll()});
 hook('opened',()=>{LP.ver++;lpDirtyAll()});
-hook('layers',()=>{lpDirtyAll();lpHint()});
+hook('layers',()=>{LP.ver++;lpDirtyAll();lpHint()});
+// masks really changed (cut preview recompute follows every edit/async result): rebuild map + thumbnail; skip the heavy cut work in overview
+{const cc=computeCut;computeCut=function(...a){LP.ver++;const L=cur();if(L&&S.active>0){LPD.add(L);lpThumbSched()}
+  if(LP.on){S.cutDirty=false;LP.cutSkip=true;return}return cc.apply(this,a)}}
 hook('render',()=>{
   if(!S.W)return;
-  if(!LP.on){LP.ver++;const L=cur();if(L&&S.active>0){LPD.add(L);lpThumbSched()}lpHint();return}
+  if(!LP.on){lpHint();return}
   if(S.active!==LP.act){lpOff();refreshButtons();render();return} // layer changed elsewhere: leave overview
-  if(!LP.own)LP.ver++;
   lpEnsure();lpPaint();$('layerTag').textContent='전체 보기';$('layerTag').style.borderLeft='4px solid #fff';lpHint()});
 
 /* @F1 js — 가려진 부분 채우기 */
@@ -1266,7 +1269,7 @@ wrap.addEventListener('pointerdown',e=>{
     const mx=(a.x+b.x)/2,my=(a.y+b.y)/2,lx=r.left-Z.tx,ly=r.top-Z.ty;
     g={d:Math.hypot(a.x-b.x,a.y-b.y)||1,z:Z.z,ax:(mx-lx-Z.tx)/Z.z,ay:(my-ly-Z.ty)/Z.z,lx,ly};
     return}
-  if(!S.W||S.active===0)return;
+  if(!S.W||S.active===0||LP.on)return; // overview handles taps itself
   first={poly:S.tool==='poly'?S.poly.length:null};
   if(S.tool==='ai'||f2Phone()&&S.tool==='poly'){e.stopPropagation();const pd=pend={id:e.pointerId,x:e.clientX,y:e.clientY};
     if(S.tool==='ai')pd.tm=setTimeout(()=>{if(pend===pd&&!pd.moved){pd.hold=true;aiHover(pt({clientX:pd.x,clientY:pd.y}),aiNeg?0:1)}},350)}

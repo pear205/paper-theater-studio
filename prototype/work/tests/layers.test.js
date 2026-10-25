@@ -140,7 +140,33 @@ const px = (p, x, y) => p.evaluate(([x, y]) => { const d = vctx.getImageData(x, 
   check('phone: tapping rabbit -> layer 4, overview off', await ph.evaluate(() => S.active === 3 && !LP.on));
   await ph.tap('#mOv'); await ph.tap('#mOv');
   check('phone: toggle twice -> off', await ph.evaluate(() => !LP.on && $('mOv').getAttribute('aria-pressed') === 'false'));
-  check('phone: no horizontal scroll after', await ph.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  // fixes: AI tool + overview on phone, Esc keeps AI points, aborted drag, hint refresh, no per-render rebuild
+  await ph.evaluate(() => { S.active = 1; S.tool = 'ai'; renderLayers(); refreshButtons(); render(); window.__ac = 0; const o = aiClick; aiClick = function (...a) { window.__ac++; return o.apply(this, a); }; window.__lb = 0; const b = lpBuild; lpBuild = function (...a) { window.__lb++; return b.apply(this, a); }; });
+  const m0 = await ph.evaluate(() => S.layers[1].mask.toDataURL());
+  await ph.tap('#mOv'); await ph.evaluate(() => $('editWrap').scrollIntoView({ block: 'start' })); await sleep(100);
+  const ps3 = await spot(ph, 3);
+  await ph.touchscreen.tap(ps3.x, ps3.y); await sleep(250);
+  const r1 = await ph.evaluate((m) => ({ a: S.active, on: LP.on, ac: window.__ac, same: S.layers[1].mask.toDataURL() === m, tool: S.tool }), m0);
+  check('phone+AI tool: overview tap picks layer, no aiClick, mask unchanged', r1.a === 3 && !r1.on && r1.ac === 0 && r1.same, r1);
+  check('hint shows tool hint after picking (not overview text)', await ph.evaluate(() => !$('hint').textContent.includes('전체 보기예요')));
+  // Esc in overview keeps AI points
+  await ph.evaluate(() => { S.active = 1; cur().aiPts = [[10, 10, 1]]; renderLayers(); refreshButtons(); render(); lpSet(true); });
+  await ph.keyboard.press('Escape'); await sleep(80);
+  check('Esc in overview keeps L.aiPts', await ph.evaluate(() => !LP.on && cur().aiPts && cur().aiPts.length === 1));
+  await ph.evaluate(() => { cur().aiPts = []; });
+  // aborted drag then two consecutive clicks
+  await ph.evaluate(() => { S.active = 1; renderLayers(); render(); lpSet(true); LP.dn = { id: 99, x: 0, y: 0 }; }); // stale down left over
+  await ph.touchscreen.tap(ps3.x, ps3.y); await sleep(150);
+  const c1 = await ph.evaluate(() => S.active === 3 && !LP.on);
+  await ph.evaluate(() => { lpSet(true); LP.dn = { id: 98, x: 0, y: 0 }; });
+  const ps4 = await spot(ph, 4);
+  await ph.touchscreen.tap(ps4.x, ps4.y); await sleep(150);
+  check('stale pointerdown does not swallow the next two taps', c1 && await ph.evaluate(() => S.active === 4 && !LP.on));
+  // render() x5 in overview: no rebuild
+  await ph.evaluate(() => { lpSet(true); window.__lb = 0; for (let i = 0; i < 5; i++) render(); });
+  check('overview: 5 renders do not rebuild the map', await ph.evaluate(() => window.__lb === 0), await ph.evaluate(() => window.__lb));
+  await ph.evaluate(() => lpSet(false));
+  check('phone: no horizontal scroll after',await ph.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await ph.evaluate(() => document.getElementById('layers').scrollIntoView({ block: 'center' }));
   await ph.screenshot({ path: path.join(OUT, 'layers-375-list.png') });
 
