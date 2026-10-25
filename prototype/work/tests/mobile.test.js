@@ -21,7 +21,10 @@ const rects = (p) => p.evaluate((k) => Object.fromEntries([...document.querySele
   await ready(d1); await ready(d2);
   const r1 = await rects(d1), r2 = await rects(d2);
   check('desktop: bar hidden', await d1.evaluate(() => getComputedStyle(document.getElementById('mbar')).display === 'none'));
-  check('desktop: layout same as base', JSON.stringify(r1) === JSON.stringify(r2), { mobile: r1, base: r2 });
+  // the legend row sits between the canvas and #hint, so only #hint moves down (by the legend height); everything else must match
+  const lgH = await d1.evaluate(() => { const l = document.getElementById('legend'); return l.hidden ? 0 : Math.round(l.getBoundingClientRect().height + 8); });
+  const q1 = { ...r1 }, q2 = { ...r2 }; delete q1['hint']; delete q2['hint']; q1.bench = q1.bench.slice(0, 3); q2.bench = q2.bench.slice(0, 3); // bench grows by the legend height too
+  check('desktop: layout same as base (legend only pushes #hint down)', JSON.stringify(q1) === JSON.stringify(q2) && Math.abs(r1.hint[1] - r2.hint[1] - lgH) <= 1 && r1.hint[0] === r2.hint[0] && r1.hint[2] === r2.hint[2] && Math.abs(r1.bench[3] - r2.bench[3] - lgH) <= 1, { mobile: r1, base: r2, lgH });
   check('desktop: 뺄 점 button exists, disabled until points', await d1.evaluate(() => { const b = document.getElementById('aiNeg'); return !!b && b.disabled; }));
   await d1.screenshot({ path: path.join(OUT, 'mobile-desktop.png') });
   await dctx.close();

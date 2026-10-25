@@ -23,7 +23,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const cx = box.x + box.w * 0.7, cy = box.y + box.h * 0.4;
 
   check('control visible, 100%', await page.evaluate(() => !document.getElementById('zctl').hidden && document.getElementById('zPct').textContent === '100%'));
-  check('control inside viewBox bottom-right, away from layer tag', await page.evaluate(() => { const c = zctl.getBoundingClientRect(), v = viewBox.getBoundingClientRect(), t = layerTag.getBoundingClientRect(); return c.right <= v.right && c.bottom <= v.bottom && c.left > v.left + v.width / 2 && (c.left >= t.right || c.top >= t.bottom || t.width === 0); }));
+  check('control sits in the tabs row, outside the image', await page.evaluate(() => { const c = zctl.getBoundingClientRect(), v = viewBox.getBoundingClientRect(); return !viewBox.contains(zctl) && zctl.parentNode.classList.contains('tabs') && c.bottom <= v.top; }));
   const hint0 = await page.textContent('#hint');
   check('hint mentions wheel/space', /휠로 확대/.test(hint0) && /스페이스/.test(hint0), hint0);
 
@@ -158,7 +158,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   check('wheel zoom clears polygon rubber band', await page.evaluate(() => S.hover === null));
   await page.evaluate(() => { S.poly = []; S.tool = 'rect'; zReset(); render(); });
   await page.evaluate(() => document.activeElement.blur()); await page.mouse.move(cx, cy); await sleep(400);
-  check('zoom control is semi-transparent, only buttons take pointer events', await page.evaluate(() => getComputedStyle(zctl).opacity < 0.6 && getComputedStyle(zctl).pointerEvents === 'none' && getComputedStyle(zIn).pointerEvents === 'auto'), await page.evaluate(() => [getComputedStyle(zctl).opacity, getComputedStyle(zctl).pointerEvents, getComputedStyle(zIn).pointerEvents]));
+  check('zoom control buttons are plain clickable buttons (not overlaying the image)', await page.evaluate(() => getComputedStyle(zctl).position !== 'absolute' && getComputedStyle(zIn).pointerEvents === 'auto'));
 
   check('no page errors (desktop)', errors.length === 0, errors);
   await ctx.close();

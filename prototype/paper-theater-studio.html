@@ -107,12 +107,22 @@ button:disabled{opacity:.45;cursor:not-allowed}
 #viewBox.zm{overflow:hidden;border-radius:4px}
 #viewBox.zsp #view{cursor:grab}
 #viewBox.zpan #view{cursor:grabbing}
-#zctl{position:absolute;right:8px;bottom:8px;z-index:2;display:flex;gap:1px;opacity:.4;pointer-events:none;transition:opacity .15s;background:rgba(0,0,0,.62);border-radius:6px;padding:2px;color:#fff;font-size:12px}
-#zctl:hover,#zctl:focus-within{opacity:1}
-#zctl button{pointer-events:auto;background:transparent;color:#fff;border:0;padding:2px 8px;min-width:26px;justify-content:center;border-radius:4px;font-size:13px;line-height:1.3}
-#zctl button:hover{background:rgba(255,255,255,.22)}
+/* zoom control + view mode live in the tabs row, off the image */
+#zctl,#vmSeg{display:flex;gap:3px;align-items:center}
+#zctl button,#vmSeg button{padding:3px 9px;min-width:26px;justify-content:center;font-size:12px;line-height:1.3;border-radius:6px}
 #zctl[hidden]{display:none}
-@media (max-width:767px){#zctl{display:none}}
+.tabs.v3d #zctl,.tabs.v3d #vmSeg{display:none}
+@media (max-width:767px){#zctl,#vmSeg{display:none}}
+/* ---------- view modes ---------- */
+.legend{display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;margin-top:8px;font-size:12px;color:rgba(255,255,255,.88)}
+.legend[hidden]{display:none}
+.legend .lg{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border:1px solid rgba(255,255,255,.22);border-radius:999px;background:transparent;color:inherit;font-size:12px;line-height:1.4;cursor:default}
+.legend button.lg{cursor:pointer}
+.legend button.lg[aria-pressed="false"]{opacity:.5;text-decoration:line-through}
+.legend.vm .lg:not(#lgCut){opacity:.35}
+.legend .sw{display:inline-block;width:16px;height:0;border-top:3px solid var(--c);border-radius:2px}
+.legend .sw.bx{height:9px;border:0;background:var(--c);width:12px;border-radius:2px}
+.legend .sw.oth{border-top:0;height:3px;background:linear-gradient(90deg,#cfe3ee,#d3e6cf,#efe2c4,#f2d2d6)}
 /* @F1 css */
 /* ---- */
 /* @F2 css */
@@ -175,10 +185,20 @@ button:disabled{opacity:.45;cursor:not-allowed}
         <button id="tab3d" aria-pressed="false">3D 미리보기</button>
         <button id="tabOv" aria-pressed="false" title="레이어마다 색을 입혀 한눈에 봐요. 색칠된 곳을 누르면 그 레이어로 이동해요">전체 보기</button>
         <span class="spacer"></span>
+        <input id="viewMode" type="hidden" value="0">
+        <span id="vmSeg" role="group" aria-label="보기 바탕"><button data-vm="0" title="어둡게 깐 그림 위에 윤곽을 겹쳐 봐요">기본</button><button data-vm="1" title="지금 레이어에 고른 곳만 흰 바탕 위에 보여요">흰 바탕</button><button data-vm="2" title="지금 레이어에 고른 곳만 검은 바탕 위에 보여요">검은 바탕</button></span>
+        <div id="zctl" hidden><button id="zOut" title="축소 (Ctrl+-)" aria-label="축소">−</button><button id="zPct" title="클릭하면 전체 보기 (Ctrl+0)">100%</button><button id="zIn" title="확대 (Ctrl++)" aria-label="확대">+</button></div>
         <span class="mm" id="sizeLabel"></span>
       </div>
       <div id="editPane">
-        <div id="editWrap"><div id="viewBox"><canvas id="view"></canvas><span id="layerTag" aria-live="polite"></span><span id="lpTip" hidden></span><div id="zctl" hidden><button id="zOut" title="축소 (Ctrl+-)" aria-label="축소">−</button><button id="zPct" title="클릭하면 전체 보기 (Ctrl+0)">100%</button><button id="zIn" title="확대 (Ctrl++)" aria-label="확대">+</button></div></div></div>
+        <div id="editWrap"><div id="viewBox"><canvas id="view"></canvas><span id="layerTag" aria-live="polite"></span><span id="lpTip" hidden></span></div></div>
+        <div class="legend" id="legend" hidden aria-label="선 색 설명">
+          <span class="lg" title="지금 레이어에 고른 영역의 테두리예요"><i class="sw" style="--c:#ffe14d"></i>고른 영역</span>
+          <button class="lg" id="lgCut" aria-pressed="true" title="실제로 자를 선이에요. 눌러서 켜고 끄기"><i class="sw" style="--c:#ff3d6e"></i>자를 선</button>
+          <button class="lg" id="lgOth" aria-pressed="true" title="다른 레이어의 윤곽이에요. 눌러서 켜고 끄기"><i class="sw oth"></i>다른 레이어</button>
+          <span class="lg" title="앞 레이어에도 들어 있어 가려지는 곳이에요"><i class="sw bx" style="--c:#ff8c1a"></i>앞 레이어에 가려짐</span>
+          <span class="lg" id="lgAi" hidden title="AI 도구로 누르면 잡을 모양이에요"><i class="sw bx" style="--c:#5ee7ff"></i>AI가 잡을 모양</span>
+        </div>
         <div class="hint-bar" id="hint"></div>
       </div>
       <div id="pvPane" hidden>
@@ -313,6 +333,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
     <button id="mOv" aria-pressed="false" aria-label="전체 보기">전체</button>
     <button id="mUndo" aria-label="되돌리기">↶</button>
     <button id="mRedo" aria-label="다시 하기">↷</button>
+    <button id="mVm" aria-label="보기 바탕 바꾸기">기본</button>
     <button id="mFit" style="flex:1.5 1 0">맞춤</button>
   </div>
 </div>
@@ -1307,6 +1328,47 @@ for(let i=0;i<n;i++)if(f[l[i]])d[i]=0};
   }finally{mats.forEach(x=>x.delete())}}
 // AI candidate as it will be applied (tidied once per candidate, cached)
 function aiSel(m,keep){if(!tidyOn()||!S.cv)return m.sel;const k=pxPerMm();if(!m.tsel||m.tk!==k){m.tsel=tidySel(m.sel,S.W,S.H,keep);m.tk=k}return m.tsel}
+/* ---------- view modes ---------- */
+// 기본 / 흰 바탕 / 검은 바탕: the latter two show only this layer's picked pixels (+ red cut line) on a flat background
+const VM_NAME=['기본','흰 바탕','검은 바탕'],VM_SHORT=['기본','흰색','검정'];
+const vmMode=()=>+$('viewMode').value||0;
+function vmSet(m){$('viewMode').value=m;$('viewMode').dispatchEvent(new Event('change',{bubbles:true}));vmSync();render()}
+function vmSync(){
+  const m=vmMode(),show=!!S.W&&S.active>0&&!LP.on;
+  document.querySelectorAll('#vmSeg [data-vm]').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.vm===m));
+  $('mVm').textContent=VM_SHORT[m];$('mVm').setAttribute('aria-pressed',m>0);
+  $('legend').hidden=!show;$('legend').classList.toggle('vm',m>0);
+  $('lgCut').setAttribute('aria-pressed',$('showCut').checked);$('lgOth').setAttribute('aria-pressed',$('showOthers').checked);
+  $('lgAi').hidden=S.tool!=='ai';
+  $('tabEdit').parentNode.classList.toggle('v3d',S.view!=='edit')}
+document.querySelectorAll('#vmSeg [data-vm]').forEach(b=>b.onclick=()=>vmSet(+b.dataset.vm));
+$('mVm').onclick=()=>vmSet((vmMode()+1)%3);
+['Cut','Oth'].forEach(k=>{const c=$(k==='Cut'?'showCut':'showOthers');$('lg'+k).onclick=()=>{c.checked=!c.checked;c.dispatchEvent(new Event('change',{bubbles:true}))}});
+$('showCut').addEventListener('change',vmSync);$('showOthers').addEventListener('change',vmSync);
+hook('view',vmSync);hook('buttons',vmSync);hook('setup',vmSync);
+hook('render',()=>{
+  vmSync();
+  const m=vmMode();if(!m||!S.W||S.active===0||LP.on)return;
+  const L=cur(),W=S.W,H=S.H,ink=m===1?'#1d2722':'#fff';
+  vctx.clearRect(0,0,W,H);vctx.fillStyle=m===1?'#fff':'#000';vctx.fillRect(0,0,W,H);
+  const t=tmp.getContext('2d');t.globalCompositeOperation='source-over';t.clearRect(0,0,W,H);
+  t.drawImage(L.mask,0,0);t.globalCompositeOperation='source-in';t.drawImage(S.src,0,0);t.globalCompositeOperation='source-over';
+  vctx.drawImage(tmp,0,0);
+  const cp=$('showCut').checked&&S.cutPrev&&S.cutPrev.L===L?S.cutPrev:null;
+  if(cp)vctx.drawImage(outline(cp.shape,'#ff3d6e'),0,0);
+  // tool feedback only (hints while painting them, rubber band, polygon, AI points / preview)
+  if(S.tool==='fg'||S.tool==='bg'){vctx.globalAlpha=.75;vctx.drawImage(L.fg,0,0);vctx.drawImage(L.bg,0,0);vctx.globalAlpha=1}
+  const r=S.draft||L.rect;
+  if(r){vctx.save();vctx.setLineDash([10,6]);vctx.lineWidth=Math.max(2,W/500);vctx.strokeStyle=(S.draft?S.selMode==='sub':L.gcMode==='sub')?'#ff8a80':ink;vctx.strokeRect(r.x,r.y,r.w,r.h);vctx.restore()}
+  if(S.poly.length){vctx.save();vctx.lineWidth=Math.max(2,W/500);vctx.strokeStyle=S.selMode==='add'?(m===1?'#0a8f5c':'#7dffc8'):'#ff8a80';
+    vctx.beginPath();S.poly.forEach((p,i)=>i?vctx.lineTo(p.x,p.y):vctx.moveTo(p.x,p.y));if(S.hover)vctx.lineTo(S.hover.x,S.hover.y);vctx.stroke();
+    vctx.fillStyle=ink;S.poly.forEach(p=>{vctx.beginPath();vctx.arc(p.x,p.y,Math.max(3,W/300),0,7);vctx.fill()});vctx.restore()}
+  if(S.tool==='ai'&&L.aiPts&&L.aiPts.length){vctx.save();vctx.lineWidth=Math.max(2,W/500);vctx.strokeStyle=ink;
+    L.aiPts.forEach(([x,y,lb])=>{vctx.fillStyle=lb?'#18b07a':'#e0463c';vctx.beginPath();vctx.arc(x,y,Math.max(5,W/160),0,7);vctx.fill();vctx.stroke()});vctx.restore()}
+  if(S.tool==='ai'&&AI.pv&&AI.pv.L===L&&AI.pv.src===S.src&&AI.pc){const col=AI.pv.sub?'#ff8a80':'#5ee7ff',t3=tmp3.getContext('2d');
+    t3.globalCompositeOperation='source-over';t3.clearRect(0,0,W,H);t3.drawImage(AI.pc,0,0);t3.globalCompositeOperation='source-in';t3.fillStyle=col;t3.fillRect(0,0,W,H);t3.globalCompositeOperation='source-over';
+    vctx.globalAlpha=.3;vctx.drawImage(tmp3,0,0);vctx.globalAlpha=1;vctx.drawImage(outline(AI.pc,col),0,0)}
+});
 /* @F1 js — 가려진 부분 채우기 */
 // multi-resolution push-pull: fills pixels where hole[p] from the others only. d=RGBA, returns RGB floats
 function f1PushPull(d,hole,w,h){
@@ -1433,7 +1495,7 @@ f2Sync();
 /* @F3 js — 작업 저장 */
 // IndexedDB autosave + .ptheater.json file. Every storage access is in try/catch; the app works without it.
 const PT={armed:false,busy:false,saving:false,again:false,off:false,t:0,sig:'',src:null,keepSrc:null,saves:0,dbp:null};
-const PT_IDS=['widthMm','borderMm','frontMm','smooth','fillHidden','showOthers','showCut','tidySel'];
+const PT_IDS=['widthMm','borderMm','frontMm','smooth','fillHidden','showOthers','showCut','tidySel','viewMode'];
 function ptDB(){return PT.dbp||(PT.dbp=new Promise((res,rej)=>{try{const r=indexedDB.open('paper-theater',1);
   r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);r.onblocked=()=>rej(new Error('blocked'))}catch(e){rej(e)}}))}
 async function ptIdb(mode,fn){const db=await ptDB();return new Promise((res,rej)=>{const t=db.transaction('kv',mode);const q=fn(t.objectStore('kv'));
