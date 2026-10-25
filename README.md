@@ -43,8 +43,12 @@
 | [OpenCV.js](https://www.npmjs.com/package/@techstark/opencv-js) (`@techstark/opencv-js`) | 경계 찾기, 단순화, 채우기 | Apache-2.0 |
 | [jsPDF](https://github.com/parallax/jsPDF) | PDF 도안 | MIT |
 | [Transformers.js](https://github.com/huggingface/transformers.js) (`@huggingface/transformers`) | AI 모델 실행 | Apache-2.0 |
+| [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) (Transformers.js가 함께 불러옴) | AI 모델 계산 | MIT |
 | [SlimSAM](https://huggingface.co/Xenova/slimsam-77-uniform) (`Xenova/slimsam-77-uniform`) | AI 클릭 선택 | Apache-2.0 |
 | [Depth Anything V2 Small](https://huggingface.co/onnx-community/depth-anything-v2-small) | 깊이 자동 나누기 | Apache-2.0 |
+| [Do Hyeon](https://fonts.google.com/specimen/Do+Hyeon), [IBM Plex Sans KR](https://fonts.google.com/specimen/IBM+Plex+Sans+KR), [IBM Plex Mono](https://fonts.google.com/specimen/IBM+Plex+Mono) (Google Fonts) | 화면·도안 글꼴 | SIL OFL 1.1 |
+
+이 저장소는 위 라이브러리·모델·글꼴의 파일을 직접 담거나 고쳐서 배포하지 않아요. 사용자의 브라우저가 각 CDN(jsDelivr, cdnjs, Hugging Face, Google Fonts)에서 원래 파일을 그대로 받아요. 나중에 이 파일들을 저장소에 직접 넣어 배포하게 되면, 각 라이선스 원문(Apache-2.0은 NOTICE 파일 포함)을 함께 넣어야 해요.
 
 ## 다음 단계
 
