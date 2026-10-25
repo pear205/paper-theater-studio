@@ -125,7 +125,7 @@ const rects = (p) => p.evaluate((k) => Object.fromEntries([...document.querySele
     neg.click(); const on1 = neg.getAttribute('aria-pressed') === 'true' && mneg.getAttribute('aria-pressed') === 'true';
     mneg.click(); const off = neg.getAttribute('aria-pressed') === 'false';
     mneg.click();
-    AI.state = 'ready'; AI.emb = {}; AI.src = S.src; window.aiEncode = async () => {};
+    AI.state = 'ready'; AI.emb = {}; AI.src = aiSrc(); window.aiEncode = async () => {};
     let got = null; window.aiDecode = async (pts) => { got = pts.slice(); throw new Error('stub'); };
     await aiClick({ x: 20, y: 20 }, 1);
     return { en, on1, off, label: got && got[got.length - 1][2], reset: aiNeg === false };

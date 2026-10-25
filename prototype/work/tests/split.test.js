@@ -45,6 +45,7 @@ const OUT = process.env.OUT_DIR || path.resolve(__dirname, '..');
   //  face: one click at her face, default candidate. whole: clicks at face, body and the forward arm, biggest candidate
   //  the top line is taken over +-3mm of columns: the 3mm cleanup may round a band's end by that much (hidden behind her)
   const girlOne = (pts, whole) => page.evaluate(async ([pts, whole]) => {
+    await aiEncode(S.src); // reference girl = SAM on the original picture (edge finding now encodes the kit picture)
     const c = await aiDecode(pts), g = c[whole ? 0 : aiPick(c)].sel, W = S.W, H = S.H, n = S.layers.length, A = S.layers.map(L => alphaArr(L.mask)), r = Math.ceil(pxPerMm() * 3);
     const cnt = new Array(n).fill(0);let N = 0;
     for (let i = 0; i < g.length; i++) if (g[i]) { N++; let v = 0; for (let k = n - 1; k >= 1; k--) if (A[k][i]) { v = k; break; } cnt[v]++; }
@@ -112,7 +113,7 @@ const OUT = process.env.OUT_DIR || path.resolve(__dirname, '..');
     // set up after this evaluate returns: the AI select model starts encoding right away and blocks the page for a while
     window.__s1 = S.src; setTimeout(() => setupImage(c, [['뒤판(배경)', 0], ['먼 풍경', 5], ['중간', 10], ['앞 대상', 16], ['맨 앞 틀', 22]]), 0); return true; });
   if (s1) {
-    await page.waitForFunction(() => S.src !== window.__s1 && AI.src === S.src && AI.emb && !AI.encoding, null, { timeout: 120000, polling: 500 });
+    await page.waitForFunction(() => S.src !== window.__s1 && AI.src === aiSrc() && AI.emb && !AI.encoding, null, { timeout: 120000, polling: 500 });
     const msP = await runSplit('sample1-pixel', false);
     res.pixel = { wallMs: msP, info: await info(), counts: (await masks()).map(m => m.n), orphans: await orphans(), girl: await girl() };
     await viz(path.join(OUT, 'split-sample1-pixel.png'));

@@ -23,7 +23,7 @@ async function open(page) {
   // consent dialog on a fresh browser: press 받기
   await sleep(300);
   await page.evaluate(() => { if (!document.getElementById('ask').hidden) document.querySelector('#askBtns button').click(); });
-  await page.waitForFunction(() => AI.state === 'error' || (AI.state === 'ready' && AI.emb && !AI.encoding && AI.src === S.src), null, { timeout: 300000 });
+  await page.waitForFunction(() => AI.state === 'error' || (AI.state === 'ready' && AI.emb && !AI.encoding && AI.src === aiSrc()), null, { timeout: 300000 });
   return s1;
 }
 const maskCount = (page) => page.evaluate(() => { const d = cur().mask.getContext('2d').getImageData(0, 0, S.W, S.H).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 127) n++; return n; });

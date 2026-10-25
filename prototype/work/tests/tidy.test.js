@@ -35,6 +35,7 @@ const stats = (page) => page.evaluate(() => {
     setupImage(c, [['뒤판(배경)', 0], ['먼 풍경', 5], ['중간', 10], ['앞 대상', 16], ['맨 앞 틀', 22]]); return true;
   });
   if (!s1) { console.log(JSON.stringify({ skipped: 'samples/sample1.webp missing' })); await browser.close(); return; }
+  await page.waitForFunction(() => !!S.kit && !KIT.job && !KIT.timer, null, { timeout: 30000 }); // kit style ON: GrabCut reads S.kit, AI reads the original
   await page.evaluate(() => { hideAsk(); S.active = 3; renderLayers(); });
   const clear = () => page.evaluate(() => { const L = cur(); L.mask.getContext('2d').clearRect(0, 0, S.W, S.H); L.gcBase = null; L.aiPts = []; S.aiLast = null; S.undo.length = 0; S.redo.length = 0; });
   const setTidy = (v) => page.evaluate((v) => { document.getElementById('tidySel').checked = v; }, v);
@@ -56,12 +57,13 @@ const stats = (page) => page.evaluate(() => {
   res.grabcut = gc;
   check('grabcut: fewer pieces, specks+holes gone', gc.on.comps < gc.off.comps && gc.off.specks + gc.off.holes >= 3 && gc.on.specks + gc.on.holes === 0, gc);
   check('grabcut: no small specks/holes left', gc.on.specks <= 1 && gc.on.holes === 0, gc.on);
-  check('grabcut: main area within 5%', Math.abs(gc.on.big - gc.off.big) / gc.off.big < 0.05, gc);
+  // kit image makes the raw GrabCut result fragmented, tidy merges the pieces: so the biggest piece may only grow, and the total area stays within 5%
+  check('grabcut: main body not lost (biggest piece >= 95% of raw, total area within 5%)', gc.on.big >= gc.off.big * 0.95 && Math.abs(gc.on.area - gc.off.area) / gc.off.area < 0.05, gc);
 
-  // ---- 빼기: the removed shape is tidied too
-  await clear(); await setTidy(true);
-  await page.evaluate(async () => { const L = cur(), g = L.mask.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(600, 270, 340, 420); S.selMode = 'sub'; L.rect = { x: 615, y: 285, w: 310, h: 387 }; await runGrabCut(newGrp()); S.selMode = 'add'; });
-  const sub = await stats(page); res.sub = sub;
+  // ---- 빼기: the removed shape is tidied too (same GrabCut input, tidy off vs on)
+  const subRun = async (on) => { await clear(); await setTidy(on); await page.evaluate(async () => { const L = cur(), g = L.mask.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(600, 270, 340, 420); S.selMode = 'sub'; L.rect = { x: 615, y: 285, w: 310, h: 387 }; await runGrabCut(newGrp()); S.selMode = 'add'; }); return stats(page); };
+  const subOff = await subRun(false), sub = await subRun(true); res.sub = { off: subOff, on: sub };
+  check('sub: tidy leaves fewer tiny pieces/holes than tidy off', sub.specks + sub.holes < subOff.specks + subOff.holes, res.sub);
   check('sub: result has no tiny pieces', sub.specks <= 2 && sub.holes <= 2, sub);
 
   // ---- AI click
@@ -69,7 +71,7 @@ const stats = (page) => page.evaluate(() => {
   await page.evaluate(() => document.querySelector('#tools [data-tool="ai"]').click());
   await sleep(300);
   await page.evaluate(() => { if (!document.getElementById('ask').hidden) document.querySelector('#askBtns button').click(); });
-  await page.waitForFunction(() => AI.state === 'error' || (AI.state === 'ready' && AI.emb && !AI.encoding && AI.src === S.src), null, { timeout: 300000 });
+  await page.waitForFunction(() => AI.state === 'error' || (AI.state === 'ready' && AI.emb && !AI.encoding && AI.src === aiSrc()), null, { timeout: 300000 });
   check('ai model ready', await page.evaluate(() => AI.state === 'ready'));
   const ai = {};
   for (const on of [false, true]) {

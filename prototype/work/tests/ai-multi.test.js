@@ -24,7 +24,7 @@ async function open(page) {
   await page.evaluate(() => document.querySelector('#tools [data-tool="ai"]').click());
   await sleep(300);
   await page.evaluate(() => { if (!document.getElementById('ask').hidden) document.querySelector('#askBtns button').click(); });
-  await page.waitForFunction(() => AI.state === 'error' || (AI.state === 'ready' && AI.emb && !AI.encoding && AI.src === S.src), null, { timeout: 300000 });
+  await page.waitForFunction(() => AI.state === 'error' || (AI.state === 'ready' && AI.emb && !AI.encoding && AI.src === aiSrc()), null, { timeout: 300000 });
   return true;
 }
 // mask area and number of components (>1500px) of the layer mask

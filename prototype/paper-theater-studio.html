@@ -283,6 +283,17 @@ button:disabled{opacity:.45;cursor:not-allowed}
       </div>
 
       <div class="card">
+        <h2>키트 스타일</h2>
+        <div class="field">
+          <span>세기</span><output id="kitStrOut">3</output>
+          <input id="kitStr" type="range" min="1" max="5" step="1" value="3">
+        </div>
+        <p class="note" id="kitState" aria-live="polite" hidden></p>
+        <p class="note">그림을 색 덩어리와 갈색 선으로 단순하게 바꿔요. 범위 지정으로 경계를 찾을 때는 항상 이 그림을 써요. AI 선택은 물체 모양을 보기 때문에 원본을 써요.</p>
+        <div class="field"><span>인쇄할 그림</span><select id="kitPrint" aria-label="인쇄할 그림"><option value="0" selected>원본</option><option value="1">키트 스타일</option></select></div>
+      </div>
+
+      <div class="card">
         <h2>크기와 구조</h2>
         <div class="field"><span>완성 가로 크기</span><span class="val"><input id="widthMm" class="num" type="number" min="60" max="280" value="210"> mm</span></div>
         <div class="field"><span>레이어 테두리 (클립 끼우는 곳)</span><span class="val"><input id="borderMm" class="num" type="number" min="0" max="20" value="6"> mm</span></div>
@@ -392,7 +403,7 @@ function setupImage(canvas,layerDefs){
   const m=S.layers[0].mask.getContext('2d');m.fillStyle='#fff';m.fillRect(0,0,S.W,S.H);
   S.active=Math.min(1,S.layers.length-1);S.aiLast=null;
   renderLayers();render();updateSize();
-  if(AI.state==='ready')aiEncode();
+  S.kit=null; // kit style is rebuilt in the 'setup' hook; the AI encodes once it exists
   fire('setup');
 }
 function renderLayers(){
@@ -538,12 +549,12 @@ function render(){
   const L=cur();vctx.clearRect(0,0,S.W,S.H);
   $('layerTag').textContent=L?`${S.active+1}번 · ${L.name}`:'';
   if(L)$('layerTag').style.borderLeft=`4px solid ${layerColor(S.active)}`;
-  if(S.active===0){vctx.drawImage(S.src,0,0)}
+  if(S.active===0){vctx.drawImage(printSrc(),0,0)}
   else{
     vctx.fillStyle='#000';vctx.fillRect(0,0,S.W,S.H);
-    vctx.globalAlpha=.32;vctx.drawImage(S.src,0,0);vctx.globalAlpha=1;
+    vctx.globalAlpha=.32;vctx.drawImage(printSrc(),0,0);vctx.globalAlpha=1;
     const t=tmp.getContext('2d');t.globalCompositeOperation='source-over';t.clearRect(0,0,S.W,S.H);
-    t.drawImage(L.mask,0,0);t.globalCompositeOperation='source-in';t.drawImage(S.src,0,0);t.globalCompositeOperation='source-over';
+    t.drawImage(L.mask,0,0);t.globalCompositeOperation='source-in';t.drawImage(printSrc(),0,0);t.globalCompositeOperation='source-over';
     vctx.drawImage(tmp,0,0);
     const others=S.layers.map((_,j)=>j).filter(j=>j>0&&j!==S.active);
     // orange: pixels of this layer that a layer in front also has
@@ -570,7 +581,7 @@ function render(){
     if(S.tool==='ai'&&L.aiPts&&L.aiPts.length){vctx.save();vctx.lineWidth=Math.max(2,S.W/500);vctx.strokeStyle='#fff';
       L.aiPts.forEach(([x,y,lb])=>{vctx.fillStyle=lb?'#18b07a':'#e0463c';vctx.beginPath();vctx.arc(x,y,Math.max(5,S.W/160),0,7);vctx.fill();vctx.stroke()});vctx.restore()}
     // AI hover preview: what a click here would give
-    if(S.tool==='ai'&&AI.pv&&AI.pv.L===L&&AI.pv.src===S.src&&AI.pc){const col=AI.pv.sub?'#ff8a80':'#5ee7ff',t3=tmp3.getContext('2d');
+    if(S.tool==='ai'&&AI.pv&&AI.pv.L===L&&AI.pv.src===aiSrc()&&AI.pc){const col=AI.pv.sub?'#ff8a80':'#5ee7ff',t3=tmp3.getContext('2d');
       t3.globalCompositeOperation='source-over';t3.clearRect(0,0,S.W,S.H);t3.drawImage(AI.pc,0,0);t3.globalCompositeOperation='source-in';t3.fillStyle=col;t3.fillRect(0,0,S.W,S.H);t3.globalCompositeOperation='source-over';
       vctx.globalAlpha=.3;vctx.drawImage(tmp3,0,0);vctx.globalAlpha=1;vctx.drawImage(outline(AI.pc,col),0,0)}
   }
@@ -657,7 +668,7 @@ async function runGrabCut(grp){
   try{
     const pad=Math.round(Math.max(r.w,r.h)*.06)+6;
     const c=clampRect({x:r.x-pad,y:r.y-pad,w:r.w+2*pad,h:r.h+2*pad});
-    const id=S.src.getContext('2d').getImageData(c.x,c.y,c.w,c.h);
+    const id=segSrc().getContext('2d').getImageData(c.x,c.y,c.w,c.h);
     const src=cv.matFromImageData(id);mats.push(src);const rgb=new cv.Mat();mats.push(rgb);cv.cvtColor(src,rgb,cv.COLOR_RGBA2RGB);
     const m=new cv.Mat(c.h,c.w,cv.CV_8UC1,new cv.Scalar(0));mats.push(m);
     const md=m.data, rx=r.x-c.x, ry=r.y-c.y;
@@ -665,6 +676,7 @@ async function runGrabCut(grp){
     const fd=objHint.getContext('2d').getImageData(c.x,c.y,c.w,c.h).data, bd=keepHint.getContext('2d').getImageData(c.x,c.y,c.w,c.h).data;
     let nf=0;for(let i=0;i<c.w*c.h;i++){if(fd[i*4+3]>0){md[i]=1;nf++}else if(bd[i*4+3]>0)md[i]=0}
     const bgM=new cv.Mat(),fgM=new cv.Mat();mats.push(bgM,fgM);
+    if(cv.setRNGSeed)cv.setRNGSeed(1); // GMM init uses the global RNG: same input -> same result
     cv.grabCut(rgb,m,new cv.Rect(0,0,1,1),bgM,fgM,4,1);
     // result is added (OR) onto, or in 빼기 mode cut out of, the mask as it was before this selection;
     // hint re-runs replace only the previous GrabCut result
@@ -672,6 +684,17 @@ async function runGrabCut(grp){
     const keep=!!L.gcBase&&L.gcKeep;pushUndo(S.active,grp);L.gcBase=base;L.gcKeep=keep;
     const out=g.getImageData(r.x,r.y,r.w,r.h);const od=out.data,bd0=base.data;
     // tidy the new shape only (hint-painted green stays, red stays out), then combine with the old mask below
+    // 빼기: tidy what REMAINS (every removed piece touches the old mask, so a keep-mask would protect them all);
+    // remaining pieces touching the rect edge continue outside it and are kept; only pixels that were in the old mask can come back
+    // looked at with a margin outside the rect (left as it was), so a hole touching the rect edge is still seen as enclosed
+    if(sub&&tidyOn()){const q=clampRect({x:r.x-6,y:r.y-6,w:r.w+12,h:r.h+12}),n=q.w*q.h,rem=new Uint8Array(n),kp=new Uint8Array(n);
+      const inR=(X,Y)=>X>=r.x&&Y>=r.y&&X<r.x+r.w&&Y<r.y+r.h,lab=(X,Y)=>md[(Y-c.y)*c.w+(X-c.x)];
+      for(let y=0;y<q.h;y++)for(let x=0;x<q.w;x++){const X=q.x+x,Y=q.y+y,i=y*q.w+x,b=bd0[(Y*S.W+X)*4+3]>127,v=inR(X,Y)?lab(X,Y):-1;rem[i]=b&&!(v===1||v===3)?1:0;if(rem[i]&&(x===0||y===0||x===q.w-1||y===q.h-1))kp[i]=1}
+      const t0=tidySel(rem,q.w,q.h,kp),t=new Uint8Array(r.w*r.h);for(let y=0;y<r.h;y++)for(let x=0;x<r.w;x++)t[y*r.w+x]=t0[(y+r.y-q.y)*q.w+x+r.x-q.x];
+      for(let y=0;y<r.h;y++)for(let x=0;x<r.w;x++){const i=y*r.w+x,v=md[(y+ry)*c.w+(x+rx)],k=i*4,b=bd0[((y+r.y)*S.W+(x+r.x))*4+3];
+        let on=t[i]&&b>127;if(v===1)on=false;else if(v===0&&b>127)on=true; // red = remove, green = keep, as the hints say
+        od[k]=od[k+1]=od[k+2]=255;od[k+3]=b>127?(on?255:0):b}
+      g.putImageData(out,r.x,r.y);return}
     let tid=null;if(tidyOn()){const raw=new Uint8Array(r.w*r.h);for(let y=0;y<r.h;y++)for(let x=0;x<r.w;x++){const v=md[(y+ry)*c.w+(x+rx)];raw[y*r.w+x]=v===1||v===3?1:0}const kp=new Uint8Array(r.w*r.h);for(let y=0;y<r.h;y++)for(let x=0;x<r.w;x++)kp[y*r.w+x]=base.data[((y+r.y)*S.W+x+r.x)*4+3]>127?1:0;tid=tidySel(raw,r.w,r.h,kp)}
     for(let y=0;y<r.h;y++)for(let x=0;x<r.w;x++){const v=md[(y+ry)*c.w+(x+rx)];const on=tid?((tid[y*r.w+x]&&v!==0)||v===1):(v===1||v===3);const k=(y*r.w+x)*4;
       const b=bd0[((y+r.y)*S.W+(x+r.x))*4+3];
@@ -731,11 +754,12 @@ async function aiLoad(){
   }catch(err){console.error(err);AI.state='error';toast('AI 모델을 받지 못했어요')}
   refreshAi()}
 // image embeddings, once per image
-function aiEncode(){
+function aiEncode(img){ // img: encode this picture instead of the original
   if(AI.state!=='ready'||!S.src)return Promise.resolve();
-  if(AI.src===S.src&&AI.emb)return Promise.resolve();
-  if(AI.encoding&&AI.encSrc===S.src)return AI.encoding;
-  const src=S.src;AI.encSrc=src;AI.emb=null;AI.src=null;
+  const src=img||aiSrc();
+  if(AI.src===src&&AI.emb)return Promise.resolve();
+  if(AI.encoding&&AI.encSrc===src)return AI.encoding;
+  AI.encSrc=src;AI.emb=null;AI.src=null;
   const job=(async()=>{
     const id=src.getContext('2d').getImageData(0,0,src.width,src.height);
     const inputs=await AI.proc(new AI.T.RawImage(id.data,src.width,src.height,4).rgb());
@@ -773,7 +797,7 @@ async function aiHoverRun(){
   try{while(AI.hv){
     const h=AI.hv,L=cur(),obj=aiObj(L),fresh=!obj||(h.label&&!h.add&&!aiInside(L,h.x,h.y)),pts=fresh?[[h.x,h.y,h.label]]:[...L.aiPts,[h.x,h.y,h.label]];
     // nothing to show: not ready, a click is running, a "not here" point with no object, or inside the object (a plain click only cycles)
-    if(S.tool!=='ai'||LP.on||!L||S.active===0||AI.state!=='ready'||!AI.emb||AI.src!==S.src||AI.encoding||S.aiBusy||(pts.length===1&&!h.label)||
+    if(S.tool!=='ai'||LP.on||!L||S.active===0||AI.state!=='ready'||!AI.emb||AI.src!==aiSrc()||AI.encoding||S.aiBusy||(pts.length===1&&!h.label)||
       (obj&&h.label&&!h.add&&!fresh)){if(AI.pv){AI.pv=null;render()}break}
     const out=await aiRun(pts),[,,,lh0,lw0]=out.pred_masks.dims,d=out.pred_masks.data,rs=AI.inputs.reshaped_input_sizes[0];
     const lw=Math.round(rs[1]/1024*lw0),lh=Math.round(rs[0]/1024*lh0),c=[];
@@ -784,7 +808,7 @@ async function aiHoverRun(){
     sg.putImageData(id,0,0);
     if(!AI.pc||AI.pc.width!==S.W||AI.pc.height!==S.H)AI.pc=mk(S.W,S.H);
     const g=AI.pc.getContext('2d');g.clearRect(0,0,S.W,S.H);g.imageSmoothingEnabled=true;g.drawImage(sm,0,0,lw,lh,0,0,S.W,S.H);
-    if(AI.hv===h&&!S.aiBusy){AI.pv={L,src:S.src,sub:(fresh?S.selMode:L.gcMode)==='sub'};render()}
+    if(AI.hv===h&&!S.aiBusy){AI.pv={L,src:aiSrc(),sub:(fresh?S.selMode:L.gcMode)==='sub'};render()}
     if(AI.hv===h)break}
   }catch(err){console.warn(err)}}
 // plain click inside the object: next candidate; outside: a new object; add (Ctrl / 점 더하기) or label 0: refine the object
@@ -799,9 +823,9 @@ async function aiClick(p,label,add){
   const fresh=!obj||(label&&!add); // a new object (its own undo step)
   if(fresh&&!label){toast('먼저 대상 위를 클릭해 주세요');return}
   S.aiBusy=true;AI.hv=null;AI.pv=null;
-  const busy=document.createElement('div');busy.className='busy';busy.textContent=AI.emb&&AI.src===S.src?'모양 찾는 중…':'그림 분석 중…';$('editWrap').appendChild(busy);
+  const busy=document.createElement('div');busy.className='busy';busy.textContent=AI.emb&&AI.src===aiSrc()?'모양 찾는 중…':'그림 분석 중…';$('editWrap').appendChild(busy);
   try{
-    await aiEncode();if(!AI.emb||AI.src!==S.src)return;
+    await aiEncode();if(!AI.emb||AI.src!==aiSrc())return;
     if(AI.pvJob)await AI.pvJob; // one decoder run at a time
     pushUndo(S.active,newGrp(),['mask'],false);
     if(fresh){S.aiLast=null;L.aiPts=[];L.gcBase=L.mask.getContext('2d').getImageData(0,0,S.W,S.H);L.gcKeep=false;L.gcMode=S.selMode;L.rect=null;
@@ -832,7 +856,7 @@ function aiThumbs(){
   if(!last||!last.masks[0].area)return;
   let [x0,y0,x1,y1]=last.masks[0].box;last.masks.forEach(m=>{if(!m.area)return;x0=Math.min(x0,m.box[0]);y0=Math.min(y0,m.box[1]);x1=Math.max(x1,m.box[2]);y1=Math.max(y1,m.box[3])});
   const pad=Math.round(Math.max(x1-x0,y1-y0)*.08)+4;x0=Math.max(0,x0-pad);y0=Math.max(0,y0-pad);x1=Math.min(S.W-1,x1+pad);y1=Math.min(S.H-1,y1+pad);
-  const cw=x1-x0+1,ch=y1-y0+1,src=S.src.getContext('2d').getImageData(x0,y0,cw,ch).data,cc=mk(cw,ch),cg=cc.getContext('2d');
+  const cw=x1-x0+1,ch=y1-y0+1,src=printSrc().getContext('2d').getImageData(x0,y0,cw,ch).data,cc=mk(cw,ch),cg=cc.getContext('2d');
   last.masks.forEach((m,k)=>{const id=cg.createImageData(cw,ch),d=id.data;
     for(let y=0;y<ch;y++)for(let x=0;x<cw;x++){const i=(y*cw+x)*4,on=m.sel[(y+y0)*S.W+x+x0];
       if(on){d[i]=src[i]*.6+40;d[i+1]=src[i+1]*.6+92;d[i+2]=src[i+2]*.6+102}else{d[i]=src[i]*.3;d[i+1]=src[i+1]*.3;d[i+2]=src[i+2]*.3}d[i+3]=255}
@@ -879,10 +903,10 @@ async function fillHidden(hole,li,fm){
   // work only on the bbox of hole ∩ used area, padded so the hole edge and context stay inside
   let x0=W,y0=H,x1=-1,y1=-1;
   for(let y=0;y<H;y++)for(let x=0;x<W;x++){const p=y*W+x;if(hole[p]&&(!use||use[p])){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}}
-  if(x1<0)return S.src;
+  if(x1<0)return printSrc();
   const pad=Math.ceil(maxB)+8;x0=Math.max(0,x0-pad);y0=Math.max(0,y0-pad);x1=Math.min(W-1,x1+pad);y1=Math.min(H-1,y1+pad);
   const cw=x1-x0+1,ch=y1-y0+1,N=cw*ch;
-  const id=S.src.getContext('2d').getImageData(x0,y0,cw,ch),d=id.data;
+  const id=printSrc().getContext('2d').getImageData(x0,y0,cw,ch),d=id.data;
   const hc=new Uint8Array(N);for(let y=0;y<ch;y++)for(let x=0;x<cw;x++)hc[y*cw+x]=hole[(y+y0)*W+x+x0]?255:0;
   // 1) smooth fill from pixels outside the hole only
   const col=f1PushPull(d,hc,cw,ch);await tick();
@@ -905,7 +929,7 @@ async function fillHidden(hole,li,fm){
       cv.inpaint(r2,b2,t2,Math.max(4,Math.round(ppm*1.5)),cv.INPAINT_TELEA);cv.resize(t2,dst,new cv.Size(cw,ch),0,0,cv.INTER_LINEAR);out=dst.data}
     for(let p=0;p<N;p++)if(hc[p]){const k=p*4,q=p*3,a=al[p]*al[p]*(3-2*al[p]);d[k]=out[q]+(col[q]-out[q])*a;d[k+1]=out[q+1]+(col[q+1]-out[q+1])*a;d[k+2]=out[q+2]+(col[q+2]-out[q+2])*a}
   }finally{mats.forEach(m=>m.delete())}
-  const full=mk(W,H),fg=full.getContext('2d');fg.drawImage(S.src,0,0);fg.putImageData(id,x0,y0);return full;
+  const full=mk(W,H),fg=full.getContext('2d');fg.drawImage(printSrc(),0,0);fg.putImageData(id,x0,y0);return full;
 }
 // border (clip strip) of layer i; the front layer gets a thicker frame with rounded inner corners
 function frameOf(i){const n=S.layers.length,ppm=pxPerMm();const isFront=i===n-1&&i>0;
@@ -927,8 +951,9 @@ function computeCut(){S.cutDirty=false;S.cutPrev=null;const i=S.active;if(!S.W||
   const L=S.layers[i],a=finalMask(i),ca=cutArr(i,a),raw=alphaArr(L.mask);
   const shape=mk(S.W,S.H),sg=shape.getContext('2d'),sd=sg.createImageData(S.W,S.H);
   const removed=mk(S.W,S.H),rg=removed.getContext('2d'),rd=rg.createImageData(S.W,S.H);
-  for(let p=0;p<ca.length;p++){if(ca[p])sd.data[p*4+3]=255;if(raw[p]&&!a[p])rd.data[p*4+3]=150}
+  for(let p=0;p<ca.length;p++){if(!S.cv&&ca[p])sd.data[p*4+3]=255;if(raw[p]&&!a[p])rd.data[p*4+3]=150}
   sg.putImageData(sd,0,0);rg.putImageData(rd,0,0);
+  if(S.cv){sg.fillStyle='#000';sg.beginPath();cutPolys(ca,pxPerMm()).forEach(q=>{q.forEach(([x,y],k)=>k?sg.lineTo(x,y):sg.moveTo(x,y));sg.closePath()});sg.fill('evenodd')} // same smoothed polygons as the PDF
   S.cutPrev={L,shape,removed}}
 function hexRGB(h){return[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]}
 async function buildTextures(){
@@ -936,7 +961,7 @@ async function buildTextures(){
   for(let i=0;i<n;i++){fm.push(finalMask(i));await tick()}
   const tex=[],cut=[];let front=new Uint8Array(S.W*S.H);
   for(let i=n-1;i>=0;i--){
-    let base=S.src;
+    let base=printSrc();
     if($('fillHidden').checked&&S.cv&&i<n-1){const hole=dilateArr(front,Math.max(2,Math.round(ppm*0.5))+1);let any=0;for(let p=0;p<hole.length;p+=97)if(hole[p]){any=1;break}if(any)base=await fillHidden(hole,i,fm);await tick()}
     const c=mk(S.W,S.H),g=c.getContext('2d');g.drawImage(base,0,0);const id=g.getImageData(0,0,S.W,S.H),d=id.data;
     const a=fm[i];const edge=i>0?dilateArr(a,Math.max(2,Math.round(ppm*0.5))):a;
@@ -1034,13 +1059,7 @@ function textImg(lines,wmm,opts={}){
   lines.forEach((t,i)=>{const bold=typeof t==='object';const s=bold?t.t:t;g.font=`${bold?'600 ':''}${bold&&t.big?fs*1.3:fs}px "IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif`;g.fillText(s,0,i*lh)});
   return{url:c.toDataURL('image/jpeg',0.9),w:wmm,h:h/ppm};
 }
-function contoursMm(arr,ppm,ox,oy){
-  const cv=S.cv;const m=cv.matFromArray(S.H,S.W,cv.CV_8UC1,arr);const cs=new cv.MatVector(),hi=new cv.Mat();
-  cv.findContours(m,cs,hi,cv.RETR_CCOMP,cv.CHAIN_APPROX_NONE);const out=[];
-  for(let i=0;i<cs.size();i++){const c=cs.get(i);if(cv.contourArea(c)<20){c.delete();continue}const ap=new cv.Mat();cv.approxPolyDP(c,ap,0.9,true);
-    const pts=[];for(let j=0;j<ap.rows;j++)pts.push([ox+ap.data32S[j*2]/ppm,oy+ap.data32S[j*2+1]/ppm]);out.push(pts);ap.delete();c.delete()}
-  m.delete();cs.delete();hi.delete();return out;
-}
+function contoursMm(arr,ppm,ox,oy){return cutPolys(arr,ppm).map(p=>p.map(([x,y])=>[ox+x/ppm,oy+y/ppm]))} // smoothed cut polygons in mm (PDF)
 function drawPath(doc,pts){if(pts.length<2)return;const d=[];for(let i=1;i<pts.length;i++)d.push([pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]]);doc.lines(d,pts[0][0],pts[0][1],[1,1],'S',true)}
 async function exportPdf(){
   if(!S.W)return;if(!window.jspdf){toast('PDF 라이브러리를 불러오지 못했어요');return}
@@ -1154,10 +1173,10 @@ function lpThumbs(){
   LPD.forEach(L=>{if(!S.layers.includes(L))LPD.delete(L)});
   S.layers.forEach((L,i)=>{if(!LPD.has(L))return;LPD.delete(L);const c=LPT.get(L);if(!c)return;
     const g=c.getContext('2d');g.imageSmoothingQuality='high';g.globalAlpha=1;g.fillStyle='#1f2622';g.fillRect(0,0,88,60);
-    if(i===0){g.drawImage(S.src,x,y,w,h);return}
-    g.globalAlpha=.3;g.drawImage(S.src,x,y,w,h);g.globalAlpha=1;
+    if(i===0){g.drawImage(printSrc(),x,y,w,h);return}
+    g.globalAlpha=.3;g.drawImage(printSrc(),x,y,w,h);g.globalAlpha=1;
     const t=lpT.getContext('2d');t.imageSmoothingQuality='high';t.globalCompositeOperation='source-over';t.clearRect(0,0,88,60);
-    t.drawImage(L.mask,x,y,w,h);t.globalCompositeOperation='source-in';t.drawImage(S.src,x,y,w,h);t.globalCompositeOperation='source-over';
+    t.drawImage(L.mask,x,y,w,h);t.globalCompositeOperation='source-in';t.drawImage(printSrc(),x,y,w,h);t.globalCompositeOperation='source-over';
     g.drawImage(lpT,0,0)})}
 function lpDirtyAll(){S.layers.forEach(L=>LPD.add(L));lpThumbSched()}
 {const pu=pushUndo;pushUndo=function(...a){LP.ver++;const L=S.layers[a[0]===undefined?S.active:a[0]];if(L){LPD.add(L);lpThumbSched()}return pu.apply(this,a)}}
@@ -1173,7 +1192,7 @@ function lpBuild(){
     else{if(!((x|y)&3)){sx[m]+=x;sy[m]+=y;cn[m]++}const c=cols[m];o[k]=c[0];o[k+1]=c[1];o[k+2]=c[2];o[k+3]=m?205:150}}
   if(!LP.ov||LP.ov.width!==W||LP.ov.height!==H){LP.ov=mk(W,H);LP.base=mk(W,H)}
   LP.ov.getContext('2d').putImageData(id,0,0);
-  const g=LP.base.getContext('2d');g.fillStyle='#000';g.fillRect(0,0,W,H);g.globalAlpha=.34;g.drawImage(S.src,0,0);g.globalAlpha=1;g.drawImage(LP.ov,0,0);
+  const g=LP.base.getContext('2d');g.fillStyle='#000';g.fillRect(0,0,W,H);g.globalAlpha=.34;g.drawImage(printSrc(),0,0);g.globalAlpha=1;g.drawImage(LP.ov,0,0);
   // number badge inside each big region (nearest region pixel to its centroid)
   const r=Math.max(9,W/75);g.font=`bold ${Math.round(r*1.3)}px sans-serif`;g.textAlign='center';g.textBaseline='middle';g.lineWidth=2;
   S.layers.forEach((_,j)=>{if(cn[j]*16<N*.004)return;const mx=sx[j]/cn[j],my=sy[j]/cn[j];let bx=-1,by=0,bd=1e18;
@@ -1363,7 +1382,7 @@ hook('render',()=>{
   const L=cur(),W=S.W,H=S.H,ink=m===1?'#1d2722':'#fff';
   vctx.clearRect(0,0,W,H);vctx.fillStyle=m===1?'#fff':'#000';vctx.fillRect(0,0,W,H);
   const t=tmp.getContext('2d');t.globalCompositeOperation='source-over';t.clearRect(0,0,W,H);
-  t.drawImage(L.mask,0,0);t.globalCompositeOperation='source-in';t.drawImage(S.src,0,0);t.globalCompositeOperation='source-over';
+  t.drawImage(L.mask,0,0);t.globalCompositeOperation='source-in';t.drawImage(printSrc(),0,0);t.globalCompositeOperation='source-over';
   vctx.drawImage(tmp,0,0);
   const cp=$('showCut').checked&&S.cutPrev&&S.cutPrev.L===L?S.cutPrev:null;
   if(cp)vctx.drawImage(outline(cp.shape,'#ff3d6e'),0,0);
@@ -1376,7 +1395,7 @@ hook('render',()=>{
     vctx.fillStyle=ink;S.poly.forEach(p=>{vctx.beginPath();vctx.arc(p.x,p.y,Math.max(3,W/300),0,7);vctx.fill()});vctx.restore()}
   if(S.tool==='ai'&&L.aiPts&&L.aiPts.length){vctx.save();vctx.lineWidth=Math.max(2,W/500);vctx.strokeStyle=ink;
     L.aiPts.forEach(([x,y,lb])=>{vctx.fillStyle=lb?'#18b07a':'#e0463c';vctx.beginPath();vctx.arc(x,y,Math.max(5,W/160),0,7);vctx.fill();vctx.stroke()});vctx.restore()}
-  if(S.tool==='ai'&&AI.pv&&AI.pv.L===L&&AI.pv.src===S.src&&AI.pc){const col=AI.pv.sub?'#ff8a80':'#5ee7ff',t3=tmp3.getContext('2d');
+  if(S.tool==='ai'&&AI.pv&&AI.pv.L===L&&AI.pv.src===aiSrc()&&AI.pc){const col=AI.pv.sub?'#ff8a80':'#5ee7ff',t3=tmp3.getContext('2d');
     t3.globalCompositeOperation='source-over';t3.clearRect(0,0,W,H);t3.drawImage(AI.pc,0,0);t3.globalCompositeOperation='source-in';t3.fillStyle=col;t3.fillRect(0,0,W,H);t3.globalCompositeOperation='source-over';
     vctx.globalAlpha=.3;vctx.drawImage(tmp3,0,0);vctx.globalAlpha=1;vctx.drawImage(outline(AI.pc,col),0,0)}
 });
@@ -1399,6 +1418,118 @@ zbox.addEventListener('wheel',bcUpdate,{passive:true});
 addEventListener('keydown',()=>setTimeout(bcUpdate),true);addEventListener('keyup',()=>setTimeout(bcUpdate),true);
 $('brush').addEventListener('input',()=>{clearTimeout(bcTm);bcTm=setTimeout(()=>{bcTm=0;bcUpdate()},800);bcUpdate()});
 ['buttons','layers','setup','opened'].forEach(n=>hook(n,bcUpdate));
+/* ---------- kit style ---------- */
+// flat-colour "kit" look of the picture: edges are always found on it (segSrc); print/display uses it when 인쇄할 그림 = 키트 스타일 (printSrc). S.src stays the original.
+const KIT={tok:0,job:null,timer:0,first:false,failed:false,ms:0,str:0,k:0};
+function segSrc(){return S.kit||S.src}
+// AI (SAM) reads object shapes and does worse on the flattened kit picture, so it always sees the original
+function aiSrc(){return S.src}
+function printSrc(){return $('kitPrint').value==='1'&&S.kit?S.kit:S.src}
+function kitPending(){if(KIT.timer)kitStart();return KIT.job}
+function kitSay(t){const e=$('kitState');e.textContent=t||'';e.hidden=!t}
+const kitLerp=(a,s)=>{const t=Math.min(a.length-1,Math.max(0,s-1)),i=Math.floor(t),j=Math.min(a.length-1,i+1);return a[i]+(a[j]-a[i])*(t-i)};
+const yieldUi=()=>new Promise(r=>setTimeout(r));
+// merge connected regions smaller than minPx into the neighbour sharing most border (large neighbours first), 2 passes
+function kitMerge(lbl,W,H,minPx){
+  const N=W*H,stack=new Int32Array(N);
+  for(let pass=0;pass<2;pass++){
+    const comp=new Int32Array(N).fill(-1),area=[],cl=[];let n=0;
+    for(let s=0;s<N;s++){if(comp[s]>=0)continue;const l=lbl[s];let sp=0,ar=0;stack[sp++]=s;comp[s]=n;
+      while(sp){const p=stack[--sp],x=p%W;ar++;
+        if(x>0&&comp[p-1]<0&&lbl[p-1]===l){comp[p-1]=n;stack[sp++]=p-1}
+        if(x<W-1&&comp[p+1]<0&&lbl[p+1]===l){comp[p+1]=n;stack[sp++]=p+1}
+        if(p>=W&&comp[p-W]<0&&lbl[p-W]===l){comp[p-W]=n;stack[sp++]=p-W}
+        if(p<N-W&&comp[p+W]<0&&lbl[p+W]===l){comp[p+W]=n;stack[sp++]=p+W}}
+      area.push(ar);cl.push(l);n++}
+    const nb=new Map(),add=(a,b)=>{if(area[a]<minPx){const k=a*n+b;nb.set(k,(nb.get(k)||0)+1)}};
+    for(let y=0,p=0;y<H;y++)for(let x=0;x<W;x++,p++){const a=comp[p];
+      if(x<W-1&&comp[p+1]!==a){add(a,comp[p+1]);add(comp[p+1],a)}
+      if(y<H-1&&comp[p+W]!==a){add(a,comp[p+W]);add(comp[p+W],a)}}
+    const best=new Float64Array(n).fill(-1),to=new Int16Array(n).fill(-1);
+    nb.forEach((c,k)=>{const a=Math.floor(k/n),b=k-a*n,sc=c+(area[b]>=minPx?1e9:0);if(sc>best[a]){best[a]=sc;to[a]=cl[b]}});
+    let ch=0;for(let p=0;p<N;p++){const t=to[comp[p]];if(t>=0){lbl[p]=t;ch++}}
+    if(!ch)break}}
+// edge-preserving smoothing -> k-means in Lab -> median -> small-region merge -> flat colours + brown region lines
+async function kitMake(src,str){
+  const cv=S.cv,W=src.width,H=src.height,N=W*H;
+  const K=Math.round(kitLerp([22,19,16,13,10],str)),NS=Math.round(kitLerp([2,2,3,4,5],str)),minPx=Math.round(kitLerp([2,3,4,6,8],str)*pxPerMm()**2);
+  const mats=[],rs=new Float64Array(K),gs=new Float64Array(K),bs=new Float64Array(K),cn=new Float64Array(K);let lbl,od;
+  try{
+    const rgba=cv.matFromImageData(src.getContext('2d').getImageData(0,0,W,H));mats.push(rgba);od=rgba.data;
+    let a=new cv.Mat();mats.push(a);cv.cvtColor(rgba,a,cv.COLOR_RGBA2RGB);
+    for(let n=0;n<NS;n++){const o=new cv.Mat();mats.push(o);cv.bilateralFilter(a,o,9,45,7);a=o;await yieldUi()}
+    const lab=new cv.Mat();mats.push(lab);cv.cvtColor(a,lab,cv.COLOR_RGB2Lab);const ld=lab.data;
+    // k-means on a ~25k sample, a/b weighted 1.6, centres seeded evenly
+    const step=Math.max(1,Math.floor(N/25000)),ns=Math.floor(N/step),P=new Float32Array(ns*3),C=new Float32Array(K*3);
+    for(let i=0;i<ns;i++){const q=i*step*3;P[i*3]=ld[q];P[i*3+1]=ld[q+1]*1.6;P[i*3+2]=ld[q+2]*1.6}
+    for(let c=0;c<K;c++){const i=Math.floor((c+.5)*ns/K);for(let d=0;d<3;d++)C[c*3+d]=P[i*3+d]}
+    const near=(l,x,y)=>{let b=0,bd=1e18;for(let c=0;c<K;c++){const dl=l-C[c*3],da=x-C[c*3+1],db=y-C[c*3+2],dd=dl*dl+da*da+db*db;if(dd<bd){bd=dd;b=c}}return b};
+    for(let it=0;it<14;it++){const sm=new Float64Array(K*3),ct=new Float64Array(K);
+      for(let i=0;i<ns;i++){const c=near(P[i*3],P[i*3+1],P[i*3+2]);sm[c*3]+=P[i*3];sm[c*3+1]+=P[i*3+1];sm[c*3+2]+=P[i*3+2];ct[c]++}
+      for(let c=0;c<K;c++)if(ct[c])for(let d=0;d<3;d++)C[c*3+d]=sm[c*3+d]/ct[c]}
+    await yieldUi();
+    lbl=new Uint8Array(N);for(let p=0;p<N;p++){const q=p*3;lbl[p]=near(ld[q],ld[q+1]*1.6,ld[q+2]*1.6)}
+    const lm=cv.matFromArray(H,W,cv.CV_8UC1,lbl),lo=new cv.Mat();mats.push(lm,lo);cv.medianBlur(lm,lo,5);lbl=new Uint8Array(lo.data);
+    await yieldUi();kitMerge(lbl,W,H,minPx);await yieldUi();
+    for(let p=0;p<N;p++){const l=lbl[p],q=p*4;rs[l]+=od[q];gs[l]+=od[q+1];bs[l]+=od[q+2];cn[l]++}
+  }finally{mats.forEach(m=>m.delete())}
+  const out=new ImageData(W,H),o=out.data,used=new Set();
+  for(let p=0;p<N;p++){const l=lbl[p],q=p*4,n=cn[l];o[q]=rs[l]/n;o[q+1]=gs[l]/n;o[q+2]=bs[l]/n;o[q+3]=255;used.add(l)}
+  // region borders: both pixels of every label change -> ~2px brown line
+  const ln=p=>{const q=p*4;o[q]=70;o[q+1]=48;o[q+2]=32};
+  for(let y=0,p=0;y<H;y++)for(let x=0;x<W;x++,p++){
+    if(x<W-1&&lbl[p+1]!==lbl[p]){ln(p);ln(p+1)}
+    if(y<H-1&&lbl[p+W]!==lbl[p]){ln(p);ln(p+W)}}
+  KIT.k=used.size;
+  const c=mk(W,H);c.getContext('2d').putImageData(out,0,0);return c}
+function kitStart(){
+  clearTimeout(KIT.timer);KIT.timer=0;
+  if(!S.cv||!S.W||!S.src)return null;
+  const tok=++KIT.tok,src=S.src,str=+$('kitStr').value||3;
+  kitSay('키트 스타일 만드는 중…');
+  const job=(async()=>{
+    await yieldUi();const t0=performance.now();
+    try{
+      const c=await kitMake(src,str);
+      if(tok!==KIT.tok||S.src!==src)return;
+      S.kit=c;KIT.ms=performance.now()-t0;KIT.str=str;KIT.failed=false;kitSay('');
+      if($('kitPrint').value==='1')kitShown();
+      if(AI.state==='ready'&&(KIT.first||S.tool==='ai'))aiEncode(); // otherwise the AI re-encodes lazily on its next use
+      KIT.first=false;
+    }catch(e){console.error(e);if(tok===KIT.tok){KIT.failed=true;kitSay('키트 스타일을 만들지 못했어요')}}
+  })();
+  KIT.job=job;job.finally(()=>{if(KIT.job===job)KIT.job=null});return job}
+// the printed picture changed: editor, thumbnails, overview, cut preview, 3D
+function kitShown(){LP.ver++;lpDirtyAll();S.cutDirty=true;render();if(S.view==='3d')build3D()}
+$('kitStr').addEventListener('input',()=>{$('kitStrOut').textContent=$('kitStr').value;clearTimeout(KIT.timer);KIT.timer=setTimeout(kitStart,400)});
+$('kitPrint').addEventListener('change',kitShown);
+hook('setup',()=>{KIT.tok++;KIT.first=true;KIT.failed=false;kitSay('');if(S.cv)kitStart();else if(AI.state==='ready')aiEncode()});
+hook('buttons',()=>{if(S.cv&&S.W&&!S.kit&&!KIT.job&&!KIT.timer&&!KIT.failed)kitStart()});
+/* ---------- smooth cut lines ---------- */
+// corner-aware Chaikin (0.25/0.75, 2 rounds): corners turning > 60deg stay exact, the rest are cut. Stays inside the polygon's hull.
+function chaikinHard(P,deg){
+  const n0=P.length;let hard=P.map((p,i)=>{const a=P[(i+n0-1)%n0],b=P[(i+1)%n0],u=Math.atan2(p[1]-a[1],p[0]-a[0]),v=Math.atan2(b[1]-p[1],b[0]-p[0]);let d=Math.abs(v-u);if(d>Math.PI)d=2*Math.PI-d;return d>deg*Math.PI/180}),Q=P;
+  for(let it=0;it<2;it++){const n=Q.length,o=[],h=[];
+    for(let i=0;i<n;i++){const a=Q[i],b=Q[(i+1)%n];
+      if(hard[i]){o.push(a);h.push(true)}else{o.push([.75*a[0]+.25*b[0],.75*a[1]+.25*b[1]]);h.push(false)}
+      if(!hard[(i+1)%n]){o.push([.25*a[0]+.75*b[0],.25*a[1]+.75*b[1]]);h.push(false)}}
+    Q=o;hard=h}
+  return Q}
+// smoothed polygon of one contour; falls back to the plain polygon if any point is > 0.5mm from the raw contour
+function smoothPoly(c,ap,ppm){
+  const P=[];for(let j=0;j<ap.rows;j++)P.push([ap.data32S[j*2],ap.data32S[j*2+1]]);
+  if(P.length<3)return P;
+  const Q=chaikinHard(P,60),lim=0.5*ppm;
+  for(const q of Q)if(Math.abs(S.cv.pointPolygonTest(c,new S.cv.Point(q[0],q[1]),true))>lim)return P;
+  return Q}
+// all cut polygons (px) of a 0/255 array: findContours + approxPolyDP + smoothing. Used by both the PDF and the editor preview.
+function cutPolys(arr,ppm){
+  const cv=S.cv,m=cv.matFromArray(S.H,S.W,cv.CV_8UC1,arr),cs=new cv.MatVector(),hi=new cv.Mat(),out=[];
+  try{cv.findContours(m,cs,hi,cv.RETR_CCOMP,cv.CHAIN_APPROX_NONE);
+    for(let i=0;i<cs.size();i++){const c=cs.get(i);try{if(cv.contourArea(c)<20)continue;const ap=new cv.Mat();try{cv.approxPolyDP(c,ap,0.9,true);out.push(smoothPoly(c,ap,ppm))}finally{ap.delete()}}finally{c.delete()}}
+  }finally{m.delete();cs.delete();hi.delete()}
+  return out}
+
 /* @F1 js — 가려진 부분 채우기 */
 // multi-resolution push-pull: fills pixels where hole[p] from the others only. d=RGBA, returns RGB floats
 function f1PushPull(d,hole,w,h){
@@ -1528,7 +1659,7 @@ f2Sync();
 /* @F3 js — 작업 저장 */
 // IndexedDB autosave + .ptheater.json file. Every storage access is in try/catch; the app works without it.
 const PT={armed:false,busy:false,saving:false,again:false,off:false,t:0,sig:'',src:null,keepSrc:null,saves:0,dbp:null};
-const PT_IDS=['widthMm','borderMm','frontMm','smooth','fillHidden','showOthers','showCut','tidySel','viewMode'];
+const PT_IDS=['widthMm','borderMm','frontMm','smooth','fillHidden','showOthers','showCut','tidySel','viewMode','kitStr','kitPrint'];
 function ptDB(){return PT.dbp||(PT.dbp=new Promise((res,rej)=>{try{const r=indexedDB.open('paper-theater',1);
   r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);r.onblocked=()=>rej(new Error('blocked'))}catch(e){rej(e)}}))}
 async function ptIdb(mode,fn){const db=await ptDB();return new Promise((res,rej)=>{const t=db.transaction('kv',mode);const q=fn(t.objectStore('kv'));
@@ -1573,6 +1704,7 @@ async function ptRestore(rec){
       L.grow=+rec.layers[i].grow||0;const m=rec.layers[i].mask;L.__png=m instanceof Blob?m:null;L.__d=false});
     const st=rec.settings||{};PT_IDS.forEach(id=>{if(!(id in st))return;const e=$(id);if(e.type==='checkbox')e.checked=!!st[id];else e.value=st[id]});
     $('smoothOut').textContent=$('smooth').value;
+    $('kitStrOut').textContent=$('kitStr').value;kitStart();
     S.active=Math.max(0,Math.min(+rec.active||0,S.layers.length-1));S.tool='rect';S.cutDirty=true;
     renderLayers();render();updateSize();refreshButtons();if(S.view==='3d')build3D();
   }finally{PT.keepSrc=null;PT.busy=false;PT.sig=ptSig()}
@@ -1797,7 +1929,7 @@ async function depthRun(){
     if(DEPTH.useObj){const t2=performance.now();
       if(AI.state==='off'||AI.state==='error'){const iv=setInterval(()=>depthSay(`물체 찾기 AI 모델 받는 중… ${aiPct()}%`),300);try{await aiLoad()}finally{clearInterval(iv)}}
       while(AI.state==='loading'){depthSay(`물체 찾기 AI 모델 받는 중… ${aiPct()}%`);await new Promise(r=>setTimeout(r,300))}
-      if(AI.state==='ready'){depthSay('물체를 찾으려고 그림을 분석하는 중…');await aiEncode()}
+      if(AI.state==='ready'){depthSay('물체를 찾으려고 그림을 분석하는 중…');await aiEncode(src)}
       if(S.src!==src){depthSay('');return}
       if(AI.state==='ready'&&AI.emb&&AI.src===src){
         if(AI.pvJob)await AI.pvJob; // one decoder run at a time
