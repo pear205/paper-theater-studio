@@ -97,6 +97,40 @@ button:disabled{opacity:.45;cursor:not-allowed}
 #ask[hidden]{display:none}
 .busy{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.35);color:#fff;font-size:14px;border-radius:6px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* @F1 css */
+/* ---- */
+/* @F2 css */
+#aiNeg[aria-pressed="true"]{background:#e0463c;border-color:#e0463c;color:#fff}
+#mbar{display:none}
+@media (max-width:767px){
+  body{margin:0;padding-top:8px;padding-left:max(6px,env(safe-area-inset-left,0px));padding-right:max(6px,env(safe-area-inset-right,0px));padding-bottom:calc(24px + var(--mbar-h,0px))}
+  .wrap{gap:10px}
+  h1{font-size:24px}
+  .sub{display:none}
+  .bench{padding:6px;border-radius:8px}
+  .tabs{margin-bottom:6px}
+  #editWrap{overflow:hidden;border-radius:4px}
+  #view{transform-origin:0 0;will-change:transform}
+  #toast{bottom:calc(var(--mbar-h,0px) + 12px)}
+  #ask{bottom:calc(var(--mbar-h,0px) + 56px)}
+  #mbar{display:flex;flex-direction:column;gap:4px;position:fixed;left:0;right:0;bottom:0;z-index:4;background:var(--panel);border-top:1px solid var(--line);box-shadow:0 -4px 16px rgba(0,0,0,.18);padding:6px max(6px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(6px,env(safe-area-inset-left,0px));touch-action:manipulation}
+  #mbar .mr{display:flex;gap:4px;align-items:stretch}
+  #mbar .mr[hidden]{display:none!important}
+  #mbar button{min-height:40px;min-width:40px;padding:4px 6px;justify-content:center;flex:1 1 0;font-size:12px;gap:3px}
+  #mbar .mt{flex-direction:column;gap:0;line-height:1.1;font-size:11px;min-height:44px}
+  #mbar .mt span{font-size:16px;line-height:1}
+  #mbar button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  #mbar #mNeg[aria-pressed="true"]{background:#e0463c;border-color:#e0463c;color:#fff}
+  #mbar .mname{flex:3 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block;line-height:40px;font-weight:600}
+  #mbar input[type=range]{flex:1;min-width:0;height:40px}
+  #mbar .ml{display:flex;align-items:center;font-size:12px;color:var(--muted);padding:0 4px;white-space:nowrap}
+}
+/* ---- */
+/* @F3 css */
+/* ---- */
+/* @F4 css */
+#depthState{flex-basis:100%}
+/* ---- */
 </style>
 
 <div class="wrap">
@@ -143,6 +177,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
         <div class="layers" id="layers"></div>
         <div class="row">
           <button id="addLayer">레이어 추가</button>
+          <button id="depthSplit">✦깊이로 자동 나누기 (AI)</button>
+          <span class="note" id="depthState" aria-live="polite" hidden></span>
           <span class="note">번호가 클수록 앞쪽이에요. 숫자는 뒤판에서 떨어진 거리(mm)예요.</span>
         </div>
       </div>
@@ -163,6 +199,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
           <div class="row">
             <span class="seg" role="group" aria-label="AI 선택 크기"><button data-lv="0">크게</button><button data-lv="1">중간</button><button data-lv="2">작게</button></span>
             <button id="aiNew" title="Esc">새 대상</button>
+            <button id="aiNeg" aria-pressed="false" title="켜면 다음 클릭이 '여기는 아니에요' 점이에요 (Shift+클릭과 같아요)" disabled>뺄 점</button>
           </div>
         </div>
         <div class="field">
@@ -212,11 +249,46 @@ button:disabled{opacity:.45;cursor:not-allowed}
         <p class="note">A4에 레이어 한 장씩, 빨간 자를 선과 클립 도안, 조립 순서가 들어간 PDF예요. 인쇄할 때 배율은 "실제 크기(100%)"로 맞춰 주세요.</p>
         <div class="row"><button class="primary" id="exportPdf">도안 PDF 저장</button></div>
       </div>
+      <!-- @F3 html (card) -->
+      <div class="card">
+        <h2>작업 저장</h2>
+        <p class="note" id="ptNote">작업은 이 브라우저에 자동으로 저장돼요. 다른 기기로 옮기려면 파일로 저장해 주세요.</p>
+        <div class="row"><button id="ptSave">파일로 저장</button><button id="ptLoad">파일 불러오기</button></div>
+        <input type="file" id="ptFile" accept=".json,application/json" hidden>
+      </div>
+      <!-- ---- -->
     </aside>
   </div>
 </div>
 <div id="toast" role="status"></div>
 <div id="ask" role="alertdialog" aria-labelledby="askMsg" hidden><span id="askMsg"></span><span class="row" id="askBtns"></span></div>
+<!-- @F2 html (bottom bar) -->
+<div id="mbar" role="toolbar" aria-label="편집 도구 막대">
+  <div class="mr" id="mCtx" hidden>
+    <span class="mr" id="mPoly" hidden><button id="mPolyClose">닫기</button><button id="mPolyCancel">취소</button></span>
+    <span class="mr" id="mAi" hidden><button id="mAiNew">새 대상</button><button data-mlv="0">크게</button><button data-mlv="1">중간</button><button data-mlv="2">작게</button><button id="mNeg" aria-pressed="false">뺄 점</button></span>
+    <span class="mr" id="mMode" hidden><button id="mAdd">더하기</button><button id="mSub">빼기</button></span>
+    <span class="mr" id="mBrush" hidden style="flex:1"><span class="ml">붓</span><input id="mBrushR" type="range" min="4" max="120" aria-label="붓 크기"><span class="ml" id="mBrushOut"></span></span>
+  </div>
+  <div class="mr">
+    <button class="mt" data-mt="rect"><span>▭</span>범위</button>
+    <button class="mt" data-mt="fg"><span style="color:#18b07a">●</span>남길</button>
+    <button class="mt" data-mt="bg"><span style="color:#e0463c">●</span>뺄</button>
+    <button class="mt" data-mt="paint"><span>✎</span>칠하기</button>
+    <button class="mt" data-mt="erase"><span>⌫</span>지우개</button>
+    <button class="mt" data-mt="poly"><span>⬠</span>다각형</button>
+    <button class="mt" data-mt="ai"><span>✦</span>AI</button>
+  </div>
+  <div class="mr">
+    <button id="mPrev" aria-label="이전 레이어">◀</button>
+    <span class="mname" id="mName"></span>
+    <button id="mNext" aria-label="다음 레이어">▶</button>
+    <button id="mUndo" aria-label="되돌리기">↶</button>
+    <button id="mRedo" aria-label="다시 하기">↷</button>
+    <button id="mFit" style="flex:1.5 1 0">맞춤</button>
+  </div>
+</div>
+<!-- ---- -->
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
@@ -230,6 +302,9 @@ const view=$('view'), vctx=view.getContext('2d');
 function mk(w,h){const c=document.createElement('canvas');c.width=w;c.height=h;return c}
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('on'),2600)}
 const tick=()=>new Promise(r=>setTimeout(r,30));
+// extension points: features register with hook(name,fn) instead of editing shared functions
+const HOOKS={};function hook(n,f){(HOOKS[n]=HOOKS[n]||[]).push(f)}
+function fire(n,...a){(HOOKS[n]||[]).forEach(f=>{try{f(...a)}catch(e){console.error(e)}})}
 function ask(msg,acts){$('askMsg').textContent=msg;const b=$('askBtns');b.innerHTML='';
   acts.forEach(([t,f],k)=>{const x=document.createElement('button');x.textContent=t;if(!k)x.className='primary';x.onclick=()=>{hideAsk();f()};b.appendChild(x)});
   $('ask').hidden=false}
@@ -264,6 +339,7 @@ function setupImage(canvas,layerDefs){
   S.active=Math.min(1,S.layers.length-1);S.aiLast=null;
   renderLayers();render();updateSize();
   if(AI.state==='ready')aiEncode();
+  fire('setup');
 }
 function renderLayers(){
   S.cutDirty=true;const box=$('layers');box.innerHTML='';
@@ -282,6 +358,7 @@ function renderLayers(){
     box.appendChild(r);
   });
   refreshButtons();
+  fire('layers');
 }
 $('addLayer').onclick=()=>{
   if(!S.W)return;const last=S.layers[S.layers.length-1];
@@ -334,6 +411,7 @@ function refreshButtons(){
   refreshAi();
   if(!S.cv){['rect','fg','bg'].forEach(t=>{const b=document.querySelector(`[data-tool="${t}"]`);if(b)b.disabled=true});$('runGC').disabled=true}
   $('hint').textContent=!S.W?'':base?'1번은 뒤판이에요. 그림 전체가 그대로 들어가요. 오른쪽에서 2번 이상 레이어를 골라 영역을 지정하세요.':HINTS[S.tool];
+  fire('buttons');
 }
 /* ---------- undo / redo ---------- */
 // snapshots keep only alpha: masks are always white and each hint layer is a single colour
@@ -438,6 +516,7 @@ function render(){
       L.aiPts.forEach(([x,y,lb])=>{vctx.fillStyle=lb?'#18b07a':'#e0463c';vctx.beginPath();vctx.arc(x,y,Math.max(5,S.W/160),0,7);vctx.fill();vctx.stroke()});vctx.restore()}
   }
   if(S.cutDirty&&!drag)scheduleCut();
+  fire('render');
 }
 
 /* ---------- pointer ---------- */
@@ -475,6 +554,7 @@ view.addEventListener('pointerup',async()=>{
     if(S.cv&&(L.rect||S.tool===objTool))await runGrabCut(d.grp)}
   else render();
 });
+view.addEventListener('pointercancel',()=>{if(drag)cancelFirst()}); // pen/mouse cancel: undo the stroke
 view.addEventListener('dblclick',()=>{if(S.tool==='poly')closePoly()});
 view.addEventListener('contextmenu',e=>{if(S.tool==='ai')e.preventDefault()});
 function stroke(c,a,b){
@@ -562,7 +642,7 @@ function refreshAi(){
     `준비됐어요 (${AI.gpu?'WebGPU':'CPU'}). 대상을 클릭하세요.`+(L&&L.aiPts&&L.aiPts.length?` 지금 점 ${L.aiPts.length}개.`:'');
   const has=S.aiLast&&S.aiLast.L===L;
   document.querySelectorAll('[data-lv]').forEach(b=>{b.disabled=!has;b.setAttribute('aria-pressed',has&&L.aiLevel===+b.dataset.lv)});
-  $('aiNew').disabled=!(L&&L.aiPts&&L.aiPts.length)}
+  $('aiNew').disabled=!(L&&L.aiPts&&L.aiPts.length);f2Sync()}
 async function aiStart(){
   if(aiBlocked()||AI.state==='loading'||AI.state==='ready')return;
   if(await aiCached()){aiLoad();return}
@@ -573,7 +653,8 @@ async function aiLoad(){
   AI.state='loading';AI.files={};refreshAi();
   try{
     const T=AI.T=AI.T||await import(AI_LIB);
-    const progress_callback=p=>{if(p.status==='progress'&&p.total){AI.files[p.file]=[p.loaded,p.total];refreshAi()}};
+    let lastPct=-1;
+    const progress_callback=p=>{if(p.status==='progress'&&p.total){AI.files[p.file]=[p.loaded,p.total];const q=aiPct();if(q!==lastPct){lastPct=q;refreshAi()}}};
     AI.gpu=await aiHasGpu();
     // image analysis on the GPU when there is one; the per-click decoder is small and fastest on wasm
     const gpuOpts={dtype:{vision_encoder:'fp16',prompt_encoder_mask_decoder:'q8'},device:{vision_encoder:'webgpu',prompt_encoder_mask_decoder:'wasm'}};
@@ -613,7 +694,7 @@ async function aiClick(p,label){
   if(aiBlocked()){toast('이 화면에서는 AI 선택을 쓸 수 없어요');return}
   if(AI.state==='off'||AI.state==='error'){aiStart();return}
   if(AI.state!=='ready'){toast('AI 모델을 받는 중이에요. 잠시만 기다려 주세요');return}
-  if(S.aiBusy)return;S.aiBusy=true;
+  if(S.aiBusy)return;if(aiNeg){label=0;aiNeg=false}S.aiBusy=true;
   const busy=document.createElement('div');busy.className='busy';busy.textContent=AI.emb&&AI.src===S.src?'모양 찾는 중…':'그림 분석 중…';$('editWrap').appendChild(busy);
   try{
     await aiEncode();if(!AI.emb||AI.src!==S.src)return;
@@ -633,7 +714,8 @@ function aiApply(L){
   const g=L.mask.getContext('2d'),out=g.createImageData(S.W,S.H),od=out.data;
   for(let i=0;i<sel.length;i++){const k=i*4;od[k]=od[k+1]=od[k+2]=255;od[k+3]=sel[i]?(sub?0:255):bd[k+3]}
   g.putImageData(out,0,0);
-  if(!sub)checkOverlap(L.gcBase)}
+  if(!sub)checkOverlap(L.gcBase);
+  if(typeof ptSched==='function'){L.__d=true;ptSched()}} // result lands after the await: make sure autosave sees it
 function aiEnd(){const L=cur();if(L&&L.aiPts&&L.aiPts.length){L.aiPts=[];L.gcBase=null}S.aiLast=null;refreshAi()}
 document.querySelectorAll('[data-lv]').forEach(b=>b.onclick=()=>{
   const L=cur();if(!S.aiLast||S.aiLast.L!==L)return;
@@ -663,22 +745,43 @@ function finalMask(i){
   const out=new Uint8Array(m.data);m.delete();return out;
 }
 function dilateArr(a,r){if(!S.cv||r<1)return a;const cv=S.cv;const m=cv.matFromArray(S.H,S.W,cv.CV_8UC1,a);const k=cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(2*r+1,2*r+1));cv.dilate(m,m,k);k.delete();const o=new Uint8Array(m.data);m.delete();return o}
-function fillHidden(hole){
-  // inpaint hidden pixels on a reduced copy, then paste back only inside the hole
-  const cv=S.cv;const sc=Math.min(1,420/S.W);const w=Math.round(S.W*sc),h=Math.round(S.H*sc);
-  const small=mk(w,h);small.getContext('2d').drawImage(S.src,0,0,w,h);
-  const hc=mk(S.W,S.H),hg=hc.getContext('2d'),hd=hg.createImageData(S.W,S.H);for(let i=0;i<hole.length;i++){hd.data[i*4+3]=hole[i]}hg.putImageData(hd,0,0);
-  const hs=mk(w,h);hs.getContext('2d').drawImage(hc,0,0,w,h);
-  const sm=cv.matFromImageData(small.getContext('2d').getImageData(0,0,w,h));const rgb=new cv.Mat();cv.cvtColor(sm,rgb,cv.COLOR_RGBA2RGB);
-  const hdat=hs.getContext('2d').getImageData(0,0,w,h).data;const hm=new cv.Mat(h,w,cv.CV_8UC1);for(let i=0;i<w*h;i++)hm.data[i]=hdat[i*4+3]>20?255:0;
-  const k=cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(5,5));cv.dilate(hm,hm,k);
-  const dst=new cv.Mat();cv.inpaint(rgb,hm,dst,6,cv.INPAINT_TELEA);
-  const o=mk(w,h),og=o.getContext('2d'),oi=og.createImageData(w,h);for(let i=0;i<w*h;i++){oi.data[i*4]=dst.data[i*3];oi.data[i*4+1]=dst.data[i*3+1];oi.data[i*4+2]=dst.data[i*3+2];oi.data[i*4+3]=255}og.putImageData(oi,0,0);
-  [sm,rgb,hm,k,dst].forEach(x=>x.delete());
-  const full=mk(S.W,S.H),fg=full.getContext('2d');fg.imageSmoothingQuality='high';fg.drawImage(o,0,0,S.W,S.H);
-  const fd=fg.getImageData(0,0,S.W,S.H),sd=S.src.getContext('2d').getImageData(0,0,S.W,S.H);
-  for(let i=0;i<hole.length;i++)if(!hole[i]){fd.data[i*4]=sd.data[i*4];fd.data[i*4+1]=sd.data[i*4+1];fd.data[i*4+2]=sd.data[i*4+2]}
-  fg.putImageData(fd,0,0);return full;
+async function fillHidden(hole,li,fm){
+  // full-res fill of layer li's hole: push-pull from outside pixels only, then Telea in the band visible at an angle
+  const cv=S.cv,W=S.W,H=S.H,ppm=pxPerMm(),zi=S.layers[li].z,tan=Math.tan(40*Math.PI/180);
+  const use=li===0?null:dilateArr(fm[li],Math.max(2,Math.round(ppm*0.5)));
+  // band width per pixel = widest band of the front layers covering it
+  const bw=new Float32Array(W*H);let maxB=ppm;
+  for(let j=li+1;j<fm.length;j++){const w=(Math.max(0,S.layers[j].z-zi)*tan+1)*ppm,m=fm[j];if(w>maxB)maxB=w;for(let p=0;p<m.length;p++)if(m[p]&&bw[p]<w)bw[p]=w}
+  // work only on the bbox of hole ∩ used area, padded so the hole edge and context stay inside
+  let x0=W,y0=H,x1=-1,y1=-1;
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){const p=y*W+x;if(hole[p]&&(!use||use[p])){if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}}
+  if(x1<0)return S.src;
+  const pad=Math.ceil(maxB)+8;x0=Math.max(0,x0-pad);y0=Math.max(0,y0-pad);x1=Math.min(W-1,x1+pad);y1=Math.min(H-1,y1+pad);
+  const cw=x1-x0+1,ch=y1-y0+1,N=cw*ch;
+  const id=S.src.getContext('2d').getImageData(x0,y0,cw,ch),d=id.data;
+  const hc=new Uint8Array(N);for(let y=0;y<ch;y++)for(let x=0;x<cw;x++)hc[y*cw+x]=hole[(y+y0)*W+x+x0]?255:0;
+  // 1) smooth fill from pixels outside the hole only
+  const col=f1PushPull(d,hc,cw,ch);await tick();
+  const mats=[];
+  try{
+    const rgb=new cv.Mat(ch,cw,cv.CV_8UC3);mats.push(rgb);const rd=rgb.data;
+    for(let p=0;p<N;p++){const k=p*4,q=p*3;if(hc[p]){rd[q]=col[q];rd[q+1]=col[q+1];rd[q+2]=col[q+2]}else{rd[q]=d[k];rd[q+1]=d[k+1];rd[q+2]=d[k+2]}}
+    // 2) band = hole pixels within the visible distance of the hole edge
+    const hm=cv.matFromArray(ch,cw,cv.CV_8UC1,hc);mats.push(hm);const dist=new cv.Mat();mats.push(dist);
+    cv.distanceTransform(hm,dist,cv.DIST_L2,3);const dd=dist.data32F;
+    const band=new cv.Mat(ch,cw,cv.CV_8UC1);mats.push(band);const bd=band.data,al=new Float32Array(N);let nb=0;
+    for(let y=0;y<ch;y++)for(let x=0;x<cw;x++){const p=y*cw+x;if(!hc[p]){bd[p]=0;continue}const t=Math.max(bw[(y+y0)*W+x+x0],ppm+3);
+      if(dd[p]<=t){bd[p]=255;nb++;al[p]=Math.min(1,Math.max(0,(dd[p]-2)/(t-2)))}else{bd[p]=0;al[p]=1}}
+    // Telea continues the edge; it fades into the smooth fill toward the inner end of the band
+    await tick();let out=rd;
+    // wide Telea radius keeps it from smearing streaks; run at half size (output is smooth anyway) to stay fast
+    if(nb){const hw=Math.max(1,cw>>1),hh=Math.max(1,ch>>1),sz=new cv.Size(hw,hh);
+      const r2=new cv.Mat(),b2=new cv.Mat(),t2=new cv.Mat(),dst=new cv.Mat();mats.push(r2,b2,t2,dst);
+      cv.resize(rgb,r2,sz,0,0,cv.INTER_AREA);cv.resize(band,b2,sz,0,0,cv.INTER_LINEAR);cv.threshold(b2,b2,0,255,cv.THRESH_BINARY);
+      cv.inpaint(r2,b2,t2,Math.max(4,Math.round(ppm*1.5)),cv.INPAINT_TELEA);cv.resize(t2,dst,new cv.Size(cw,ch),0,0,cv.INTER_LINEAR);out=dst.data}
+    for(let p=0;p<N;p++)if(hc[p]){const k=p*4,q=p*3,a=al[p]*al[p]*(3-2*al[p]);d[k]=out[q]+(col[q]-out[q])*a;d[k+1]=out[q+1]+(col[q+1]-out[q+1])*a;d[k+2]=out[q+2]+(col[q+2]-out[q+2])*a}
+  }finally{mats.forEach(m=>m.delete())}
+  const full=mk(W,H),fg=full.getContext('2d');fg.drawImage(S.src,0,0);fg.putImageData(id,x0,y0);return full;
 }
 // border (clip strip) of layer i; the front layer gets a thicker frame with rounded inner corners
 function frameOf(i){const n=S.layers.length,ppm=pxPerMm();const isFront=i===n-1&&i>0;
@@ -710,7 +813,7 @@ async function buildTextures(){
   const tex=[],cut=[];let front=new Uint8Array(S.W*S.H);
   for(let i=n-1;i>=0;i--){
     let base=S.src;
-    if($('fillHidden').checked&&S.cv&&i<n-1){const hole=dilateArr(front,2);let any=0;for(let p=0;p<hole.length;p+=97)if(hole[p]){any=1;break}if(any)base=fillHidden(hole);await tick()}
+    if($('fillHidden').checked&&S.cv&&i<n-1){const hole=dilateArr(front,Math.max(2,Math.round(ppm*0.5))+1);let any=0;for(let p=0;p<hole.length;p+=97)if(hole[p]){any=1;break}if(any)base=await fillHidden(hole,i,fm);await tick()}
     const c=mk(S.W,S.H),g=c.getContext('2d');g.drawImage(base,0,0);const id=g.getImageData(0,0,S.W,S.H),d=id.data;
     const a=fm[i];const edge=i>0?dilateArr(a,Math.max(2,Math.round(ppm*0.5))):a;
     const F=frameOf(i),isFront=F.isFront,b=F.b,rad=F.rad;
@@ -769,7 +872,7 @@ $('fillHidden').onchange=()=>{if(S.view==='3d')build3D()};
 /* ---------- 3D preview ---------- */
 const box=$('box');let pvLayers=[],pvBusy=false,pvQueued=false;
 $('tabEdit').onclick=()=>setView('edit');$('tab3d').onclick=()=>setView('3d');
-function setView(v){S.view=v;$('tabEdit').setAttribute('aria-pressed',v==='edit');$('tab3d').setAttribute('aria-pressed',v==='3d');$('editPane').hidden=v!=='edit';$('pvPane').hidden=v!=='3d';if(v==='3d')build3D()}
+function setView(v){S.view=v;$('tabEdit').setAttribute('aria-pressed',v==='edit');$('tab3d').setAttribute('aria-pressed',v==='3d');$('editPane').hidden=v!=='edit';$('pvPane').hidden=v!=='3d';if(v==='3d')build3D();fire('view',v)}
 async function build3D(){
   if(!S.W)return;if(pvBusy){pvQueued=true;return}pvBusy=true;
   const st=$('stage3d');const busy=document.createElement('div');busy.className='busy';busy.textContent='미리보기 만드는 중…';st.style.position='relative';st.appendChild(busy);await tick();
@@ -864,11 +967,11 @@ async function exportPdf(){
   }catch(e){console.error(e);toast('PDF를 만들지 못했어요: '+(e.message||e))}
   finally{btn.disabled=false;btn.textContent='도안 PDF 저장'}
 }
-async function saveFile(name,blob){
+async function saveFile(name,blob,okMsg='PDF를 저장했어요'){
   let dl=null;try{dl=window.claude&&window.claude.use?await window.claude.use('downloads'):null}catch(e){dl=null}
-  if(dl){try{await dl.save({filename:name,data:blob});toast('PDF를 저장했어요')}catch(e){toast(e&&e.code==='declined'?'저장을 취소했어요':'이 화면에서는 저장할 수 없어요')}return}
+  if(dl){try{await dl.save({filename:name,data:blob});toast(okMsg)}catch(e){toast(e&&e.code==='declined'?'저장을 취소했어요':'이 화면에서는 저장할 수 없어요')}return}
   if(window.claude&&window.claude.use){toast('이 화면에서는 파일 저장을 쓸 수 없어요');return}
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000);toast('PDF를 저장했어요');
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000);toast(okMsg);
   window.__lastPdfSize=blob.size;
 }
 $('exportPdf').onclick=exportPdf;
@@ -878,7 +981,7 @@ $('file').onchange=e=>{const f=e.target.files[0];if(!f)return;const img=new Imag
   const sc=Math.min(1,1400/Math.max(img.width,img.height));const c=mk(Math.round(img.width*sc),Math.round(img.height*sc));
   c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(img.src);
   setupImage(c,[['뒤판(배경)',0],['먼 풍경',5],['중간',10],['앞 대상',16],['맨 앞 틀',22]]);S.tool='rect';refreshButtons();
-  if(S.view==='3d')build3D();toast('2번 레이어부터 오려낼 영역을 지정하세요')};img.src=URL.createObjectURL(f);e.target.value=''};
+  if(S.view==='3d')build3D();toast('2번 레이어부터 오려낼 영역을 지정하세요');fire('opened')};img.src=URL.createObjectURL(f);e.target.value=''};
 
 /* ---------- procedural sample scene ---------- */
 function sample(){
@@ -911,6 +1014,351 @@ function sample(){
 }
 $('loadSample').onclick=()=>{sample();if(S.view==='3d')build3D();toast('예시 그림을 불러왔어요')};
 
-sample();refreshButtons();loadCV();
+/* @F1 js — 가려진 부분 채우기 */
+// multi-resolution push-pull: fills pixels where hole[p] from the others only. d=RGBA, returns RGB floats
+function f1PushPull(d,hole,w,h){
+  const C=[],Wt=[],dims=[];let c=new Float32Array(w*h*3),wt=new Float32Array(w*h);
+  for(let p=0;p<w*h;p++)if(!hole[p]){wt[p]=1;c[p*3]=d[p*4];c[p*3+1]=d[p*4+1];c[p*3+2]=d[p*4+2]}
+  C.push(c);Wt.push(wt);dims.push([w,h]);
+  // push: tent-filtered 2x reduction of premultiplied color, weight clamped to 1
+  while(w>1||h>1){const nw=Math.ceil(w/2),nh=Math.ceil(h/2),nc=new Float32Array(nw*nh*3),nwt=new Float32Array(nw*nh),pc=c,pw=wt;
+    for(let y=0;y<nh;y++)for(let x=0;x<nw;x++){let sw=0,r=0,g=0,b=0;
+      for(let dy=-1;dy<=1;dy++){const yy=2*y+dy;if(yy<0||yy>=h)continue;const ky=dy?1:2;
+        for(let dx=-1;dx<=1;dx++){const xx=2*x+dx;if(xx<0||xx>=w)continue;const k=ky*(dx?1:2),q=yy*w+xx,v=pw[q]*k;if(!v)continue;sw+=v;r+=pc[q*3]*k;g+=pc[q*3+1]*k;b+=pc[q*3+2]*k}}
+      const o=y*nw+x;if(sw>0){const a=Math.min(1,sw/4),s=a/sw;nwt[o]=a;nc[o*3]=r*s;nc[o*3+1]=g*s;nc[o*3+2]=b*s}}
+    w=nw;h=nh;c=nc;wt=nwt;C.push(c);Wt.push(wt);dims.push([w,h])}
+  // pull: coarse colors bilinearly upsampled fill what each finer level lacks
+  let col=new Float32Array(3);if(wt[0]>0){col[0]=c[0]/wt[0];col[1]=c[1]/wt[0];col[2]=c[2]/wt[0]}else col.fill(128);
+  for(let l=C.length-2;l>=0;l--){const [fw,fh]=dims[l],[cw,ch]=dims[l+1],fc=C[l],fwt=Wt[l],nc=new Float32Array(fw*fh*3);
+    for(let y=0;y<fh;y++){let sy=(y+.5)/2-.5;if(sy<0)sy=0;if(sy>ch-1)sy=ch-1;const y0=Math.floor(sy),y1=Math.min(ch-1,y0+1),ty=sy-y0;
+      for(let x=0;x<fw;x++){const p=y*fw+x,a=fwt[p];if(a>=1){nc[p*3]=fc[p*3];nc[p*3+1]=fc[p*3+1];nc[p*3+2]=fc[p*3+2];continue}
+        let sx=(x+.5)/2-.5;if(sx<0)sx=0;if(sx>cw-1)sx=cw-1;const x0=Math.floor(sx),x1=Math.min(cw-1,x0+1),tx=sx-x0;
+        const q00=(y0*cw+x0)*3,q01=(y0*cw+x1)*3,q10=(y1*cw+x0)*3,q11=(y1*cw+x1)*3,w00=(1-tx)*(1-ty),w01=tx*(1-ty),w10=(1-tx)*ty,w11=tx*ty;
+        for(let k=0;k<3;k++)nc[p*3+k]=fc[p*3+k]+(1-a)*(col[q00+k]*w00+col[q01+k]*w01+col[q10+k]*w10+col[q11+k]*w11)}}
+    col=nc}
+  return col}
+/* ---- */
+/* @F2 js — 휴대폰 편집 */
+var aiNeg=false;
+const f2Phone=()=>matchMedia('(max-width:767px)').matches;
+const Z={z:1,tx:0,ty:0};
+function zApply(){
+  const w=view.offsetWidth,h=view.offsetHeight;
+  Z.tx=Math.min(0,Math.max(w-w*Z.z,Z.tx));Z.ty=Math.min(0,Math.max(h-h*Z.z,Z.ty));
+  view.style.transform=Z.z===1?'':`translate(${Z.tx}px,${Z.ty}px) scale(${Z.z})`}
+function zReset(){Z.z=1;Z.tx=Z.ty=0;view.style.transform=''}
+hook('setup',zReset);
+addEventListener('resize',()=>{if(!f2Phone())zReset();else if(Z.z>1)zApply()});
+// bar -> existing buttons (no duplicated logic)
+const bt=(id,fn)=>$(id).addEventListener('click',fn);
+document.querySelectorAll('[data-mt]').forEach(b=>b.addEventListener('click',()=>{const o=document.querySelector(`#tools [data-tool="${b.dataset.mt}"]`);if(o&&!o.disabled)o.click()}));
+bt('mPolyClose',()=>$('polyClose').click());bt('mPolyCancel',()=>$('polyCancel').click());
+bt('mAiNew',()=>$('aiNew').click());
+document.querySelectorAll('[data-mlv]').forEach(b=>b.addEventListener('click',()=>{const o=document.querySelector(`[data-lv="${b.dataset.mlv}"]`);if(o&&!o.disabled)o.click()}));
+bt('mAdd',()=>$('selAdd').click());bt('mSub',()=>$('selSub').click());
+bt('mUndo',()=>$('undo').click());bt('mRedo',()=>$('redo').click());
+bt('mFit',()=>zReset());
+const goLayer=d=>{const i=S.active+d;if(i<0||i>=S.layers.length)return;S.active=i;S.poly=[];renderLayers();render()};
+bt('mPrev',()=>goLayer(-1));bt('mNext',()=>goLayer(1));
+const negToggle=()=>{if($('aiNeg').disabled)return;aiNeg=!aiNeg;f2Sync()};
+bt('mNeg',negToggle);$('aiNeg').addEventListener('click',negToggle);
+$('mBrushR').addEventListener('input',e=>{$('brush').value=e.target.value;$('brush').dispatchEvent(new Event('input'));f2Sync()});
+function f2Sync(){
+  if(!$('mbar'))return;
+  const L=cur(),has=!!(L&&L.aiPts&&L.aiPts.length);
+  if(!has)aiNeg=false;
+  $('aiNeg').disabled=!has;$('aiNeg').setAttribute('aria-pressed',aiNeg);
+  $('mNeg').disabled=!has;$('mNeg').setAttribute('aria-pressed',aiNeg);
+  document.querySelectorAll('[data-mt]').forEach(b=>{const o=document.querySelector(`#tools [data-tool="${b.dataset.mt}"]`);b.disabled=!o||o.disabled;b.setAttribute('aria-pressed',S.tool===b.dataset.mt)});
+  const t=S.tool,poly=t==='poly',ai=t==='ai',br=['fg','bg','paint','erase'].includes(t),mode=['poly','rect','ai'].includes(t);
+  $('mPoly').hidden=!poly;$('mAi').hidden=!ai;$('mMode').hidden=!mode;$('mBrush').hidden=!br;$('mCtx').hidden=!(poly||ai||br||mode)||S.active===0;
+  $('mAiNew').disabled=$('aiNew').disabled;
+  document.querySelectorAll('[data-mlv]').forEach(b=>{const o=document.querySelector(`[data-lv="${b.dataset.mlv}"]`);b.disabled=!o||o.disabled;b.setAttribute('aria-pressed',o?o.getAttribute('aria-pressed')||'false':'false')});
+  $('mAdd').setAttribute('aria-pressed',S.selMode==='add');$('mSub').setAttribute('aria-pressed',S.selMode==='sub');
+  $('mBrushR').value=S.brush;$('mBrushOut').textContent=S.brush+'px';
+  $('mName').textContent=L?`${S.active+1}번 ${L.name}`:'';
+  $('mPrev').disabled=S.active<=0;$('mNext').disabled=S.active>=S.layers.length-1;
+  $('mUndo').disabled=$('undo').disabled;$('mRedo').disabled=$('redo').disabled;
+}
+hook('buttons',f2Sync);hook('layers',f2Sync);
+// keep content and toasts above the bar
+new ResizeObserver(()=>document.documentElement.style.setProperty('--mbar-h',($('mbar').offsetHeight||0)+'px')).observe($('mbar'));
+// two-finger pinch / pan; capture phase so view's own handlers never see the gesture
+const wrap=$('editWrap'),tp=new Map();let g=null,gest=false,pend=null,first=null;
+function cancelFirst(){
+  if(pend){pend=null;first=null;return}
+  if(drag){
+    if(drag.t==='brush'){const e=S.undo.pop();if(e)restoreSnap(e)}
+    drag=null;S.draft=null;render();
+  } else if(first&&first.poly!=null&&S.tool==='poly'&&S.poly.length>first.poly){S.poly.pop();S.hover=null;render()}
+  first=null}
+wrap.addEventListener('pointerdown',e=>{
+  if(e.pointerType!=='touch')return;
+  if(e.isPrimary){tp.clear();gest=false;g=null;pend=null;first=null} // drop stale pointers
+  tp.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(tp.size>=2){
+    e.stopPropagation();
+    if(!gest){gest=true;cancelFirst()}
+    const [a,b]=[...tp.values()],r=view.getBoundingClientRect();
+    const mx=(a.x+b.x)/2,my=(a.y+b.y)/2,lx=r.left-Z.tx,ly=r.top-Z.ty;
+    g={d:Math.hypot(a.x-b.x,a.y-b.y)||1,z:Z.z,ax:(mx-lx-Z.tx)/Z.z,ay:(my-ly-Z.ty)/Z.z,lx,ly};
+    return}
+  if(!S.W||S.active===0)return;
+  first={poly:S.tool==='poly'?S.poly.length:null};
+  if(f2Phone()&&(S.tool==='ai'||S.tool==='poly')){e.stopPropagation();pend={id:e.pointerId,x:e.clientX,y:e.clientY}}
+},true);
+wrap.addEventListener('pointermove',e=>{
+  if(e.pointerType!=='touch'||!tp.has(e.pointerId))return;
+  tp.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(gest){
+    e.stopPropagation();
+    if(tp.size>=2&&g){const [a,b]=[...tp.values()],mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
+      Z.z=Math.max(1,Math.min(6,g.z*Math.hypot(a.x-b.x,a.y-b.y)/g.d));
+      Z.tx=mx-g.lx-g.ax*Z.z;Z.ty=my-g.ly-g.ay*Z.z;zApply()}
+    return}
+  if(pend&&pend.id===e.pointerId&&Math.hypot(e.clientX-pend.x,e.clientY-pend.y)>10)pend.moved=true;
+},true);
+const f2Up=e=>{
+  if(e.pointerType!=='touch'||!tp.has(e.pointerId))return;
+  tp.delete(e.pointerId);
+  if(gest){e.stopPropagation();if(!tp.size){gest=false;g=null;first=null}else g=null;return}
+  if(e.type==='pointercancel')cancelFirst();
+  const pd=pend;pend=null;first=null;
+  if(pd&&pd.id===e.pointerId){
+    e.stopPropagation();
+    if(e.type==='pointercancel'||pd.moved||!S.W||S.active===0)return;
+    const p=pt(e);
+    if(S.tool==='ai')aiClick(p,1);
+    else if(S.tool==='poly'){
+      if(S.poly.length>2){const f=S.poly[0];if(Math.hypot(f.x-p.x,f.y-p.y)<S.W/60){closePoly();return}}
+      S.poly.push(p);render()}}
+};
+wrap.addEventListener('pointerup',f2Up,true);wrap.addEventListener('pointercancel',f2Up,true);
+f2Sync();
+/* ---- */
+/* @F3 js — 작업 저장 */
+// IndexedDB autosave + .ptheater.json file. Every storage access is in try/catch; the app works without it.
+const PT={armed:false,busy:false,saving:false,again:false,off:false,t:0,sig:'',src:null,keepSrc:null,saves:0,dbp:null};
+const PT_IDS=['widthMm','borderMm','frontMm','smooth','fillHidden','showOthers','showCut'];
+function ptDB(){return PT.dbp||(PT.dbp=new Promise((res,rej)=>{try{const r=indexedDB.open('paper-theater',1);
+  r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);r.onblocked=()=>rej(new Error('blocked'))}catch(e){rej(e)}}))}
+async function ptIdb(mode,fn){const db=await ptDB();return new Promise((res,rej)=>{const t=db.transaction('kv',mode);const q=fn(t.objectStore('kv'));
+  t.oncomplete=()=>res(q&&q.result);t.onerror=t.onabort=()=>rej(t.error||new Error('idb'))})}
+function ptOff(e){if(!PT.off){PT.off=true;console.warn('autosave off',e);$('ptNote').textContent='이 화면에서는 자동 저장을 쓸 수 없어요. 꼭 필요하면 "파일로 저장"을 써 주세요.'}}
+const ptBlob=c=>new Promise(r=>c.toBlob(b=>r(b),'image/png'));
+function ptSettings(){const o={};PT_IDS.forEach(id=>{const e=$(id);o[id]=e.type==='checkbox'?e.checked:+e.value});return o}
+function ptSig(){return JSON.stringify([ptSettings(),S.W,S.H,S.layers.map(L=>[L.name,L.z,L.grow||0])])}
+function ptSched(){if(PT.off||!PT.armed||PT.busy||!S.W)return;clearTimeout(PT.t);PT.t=setTimeout(ptTick,1500)}
+function ptCheck(){if(!PT.armed||PT.busy||!S.W||drag)return;const s=ptSig();if(s!==PT.sig){PT.sig=s;ptSched()}}
+async function ptTick(){
+  if(drag){PT.t=setTimeout(ptTick,800);return}
+  if(PT.saving){PT.again=true;return}
+  PT.saving=true;
+  try{const rec=await ptCollect(false);await ptIdb('readwrite',s=>s.put(rec,'project'));PT.saves++}
+  catch(e){ptOff(e)}
+  finally{PT.saving=false;if(PT.again){PT.again=false;ptSched()}}
+}
+// forFile: masks/image as dataURL strings (JSON); otherwise Blobs for IndexedDB. Only layers with a dirty flag are re-encoded.
+async function ptCollect(forFile){
+  const layers=S.layers.slice(),srcP=PT.src; // snapshot before any await
+  const out={version:1,app:'paper-theater',savedAt:Date.now(),W:S.W,H:S.H,settings:ptSettings(),active:S.active,layers:[]};
+  const cv=forFile?b=>new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result);f.readAsDataURL(b)}):async b=>b;
+  out.src=await cv(await srcP);
+  for(const L of layers){
+    if(!L.__png||L.__d){L.__d=false;L.__png=await ptBlob(L.mask)}
+    out.layers.push({name:L.name,z:L.z,grow:L.grow||0,mask:await cv(L.__png)});
+  }
+  return out;
+}
+const ptImg=x=>new Promise((res,rej)=>{const u=typeof x==='string'?x:URL.createObjectURL(x);const i=new Image();
+  i.onload=()=>{if(typeof x!=='string')URL.revokeObjectURL(u);res(i)};i.onerror=()=>rej(new Error('image'));i.src=u});
+async function ptRestore(rec){
+  if(!rec||rec.version!==1||!rec.src||!Array.isArray(rec.layers)||!rec.layers.length||rec.layers.length>30)throw new Error('format');
+  PT.busy=true;
+  try{
+    const im=await ptImg(rec.src);const c=mk(im.naturalWidth,im.naturalHeight);c.getContext('2d').drawImage(im,0,0);
+    const masks=[];for(const l of rec.layers)masks.push(await ptImg(l.mask));
+    PT.keepSrc=rec.src instanceof Blob?rec.src:null;
+    setupImage(c,rec.layers.map(l=>[String(l.name),Math.max(0,+l.z||0)]));
+    S.layers.forEach((L,i)=>{const g=L.mask.getContext('2d');g.clearRect(0,0,S.W,S.H);g.drawImage(masks[i],0,0,S.W,S.H);
+      L.grow=+rec.layers[i].grow||0;const m=rec.layers[i].mask;L.__png=m instanceof Blob?m:null;L.__d=false});
+    const st=rec.settings||{};PT_IDS.forEach(id=>{if(!(id in st))return;const e=$(id);if(e.type==='checkbox')e.checked=!!st[id];else e.value=st[id]});
+    $('smoothOut').textContent=$('smooth').value;
+    S.active=Math.max(0,Math.min(+rec.active||0,S.layers.length-1));S.tool='rect';S.cutDirty=true;
+    renderLayers();render();updateSize();refreshButtons();if(S.view==='3d')build3D();
+  }finally{PT.keepSrc=null;PT.busy=false;PT.sig=ptSig()}
+}
+function ptArm(sched){PT.armed=true;PT.sig=S.W?ptSig():'';if(sched)ptSched()}
+hook('setup',()=>{
+  PT.src=PT.keepSrc?Promise.resolve(PT.keepSrc):ptBlob(S.src);
+  S.layers.forEach(L=>{L.__png=null});
+  if(PT.armed&&!PT.busy){PT.sig=ptSig();ptSched()}
+});
+hook('layers',ptCheck);hook('render',ptCheck);
+document.addEventListener('change',ptCheck);document.addEventListener('input',ptCheck);
+// mask edits all go through pushUndo (before the change) and undo/redo through undoStep: mark layers dirty there
+{const pu=pushUndo;pushUndo=function(...a){const L=S.layers[a[0]===undefined?S.active:a[0]];if(L&&(!a[2]||a[2].includes('mask')))L.__d=true;const r=pu.apply(this,a);ptSched();return r};
+ const us=undoStep;undoStep=function(...a){const r=us.apply(this,a);S.layers.forEach(L=>{L.__d=true});ptSched();return r}}
+$('ptSave').onclick=async()=>{
+  if(!S.W)return;const b=$('ptSave');b.disabled=true;
+  try{const rec=await ptCollect(true);await saveFile('paper-theater.ptheater.json',new Blob([JSON.stringify(rec)],{type:'application/json'}),'작업을 파일로 저장했어요')}
+  catch(e){console.error(e);toast('작업을 저장하지 못했어요')}finally{b.disabled=false}};
+$('ptLoad').onclick=()=>$('ptFile').click();
+$('ptFile').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
+  try{await ptRestore(JSON.parse(await f.text()));toast('작업을 불러왔어요');fire('opened');ptSched()}
+  catch(err){console.error(err);toast('이 파일은 불러올 수 없어요. 페이퍼시어터 작업 파일인지 확인해 주세요')}};
+// startup: autosave stays off until the stored project is accepted or dropped, so sample() can never overwrite it
+async function ptStart(){
+  let rec=null;
+  try{rec=await ptIdb('readonly',s=>s.get('project'))}catch(e){ptOff(e)}
+  if(!rec||rec.version!==1||!rec.src){ptArm();return}
+  let decided=false;const done=()=>{decided=true;obs.disconnect()};
+  const obs=new MutationObserver(()=>{if($('ask').hidden&&!decided){done();ptIdb('readwrite',s=>s.put(rec,'prev')).catch(ptOff).then(()=>ptArm(true))}}); // ask closed silently: keep the stored project as 'prev', then autosave
+  obs.observe($('ask'),{attributes:true,attributeFilter:['hidden']});
+  ask('지난 작업을 이어서 할까요?',[
+    ['이어서 하기',async()=>{done();try{await ptRestore(rec);toast('지난 작업을 불러왔어요')}catch(e){console.error(e);toast('지난 작업을 불러오지 못했어요')}ptArm()}],
+    ['새로 시작',()=>{done();ptIdb('readwrite',s=>s.delete('project')).catch(ptOff);ptArm()}]]);
+}
+
+/* @F4 js — 깊이 자동 나누기 */
+// optional AI: Depth Anything v2 small through the same transformers.js (AI.T). Nothing loads until the button is pressed.
+const DEPTH_MODEL='onnx-community/depth-anything-v2-small';
+const DEPTH_MB={fp16:50,q8:27}; // onnx/model_fp16.onnx 49.6MB, onnx/model_quantized.onnx 27.3MB
+const DEPTH={state:'off',pipe:null,gpu:false,f16:null,files:{},busy:false,src:null,d:null,info:null};
+async function depthF16(){try{const a=navigator.gpu&&await navigator.gpu.requestAdapter();return !!(a&&a.features.has('shader-f16'))}catch(e){return false}}
+async function depthCached(){try{const c=await caches.open('transformers-cache');return (await c.keys()).some(r=>r.url.includes('depth-anything'))}catch(e){return false}}
+function depthPct(){const f=Object.values(DEPTH.files);let a=0,b=0;f.forEach(([l,t])=>{a+=l;b+=t});return b?Math.round(a/b*100):0}
+function depthSay(t){const e=$('depthState');if(!e)return;e.textContent=t||'';e.hidden=!t}
+hook('buttons',()=>{const b=$('depthSplit');if(!b)return;b.disabled=!S.W||!S.cv||DEPTH.busy||S.layers.length<2||aiBlocked();
+  if(aiBlocked())depthSay('이 화면(claude.ai)에서는 깊이 AI를 쓸 수 없어요. 파일을 내려받아 브라우저에서 열면 쓸 수 있어요.')});
+hook('setup',()=>{DEPTH.d=null;DEPTH.src=null;if(!DEPTH.busy)depthSay('')}); // new image or restore: drop the cached depth
+$('depthSplit').onclick=()=>depthClick();
+async function depthClick(){
+  if(!S.W||DEPTH.busy||DEPTH.state==='loading')return;
+  if(aiBlocked()){toast('이 화면에서는 깊이 AI를 쓸 수 없어요');return}
+  if(!S.cv){toast('OpenCV를 불러오는 중이에요. 잠시 뒤에 눌러 주세요');return}
+  if(S.layers.length<2){toast('레이어가 2장 이상 있어야 해요');return}
+  if(DEPTH.state==='ready'){depthConfirm();return}
+  if(await depthCached()){depthLoad();return}
+  DEPTH.f16=await depthF16();const mb=DEPTH.f16?DEPTH_MB.fp16:DEPTH_MB.q8,keep=await aiCanCache();
+  ask(keep?`깊이 AI 모델(약 ${mb}MB)을 처음 한 번 받아요. 받은 뒤에는 브라우저에 저장돼서 다음부터는 바로 열려요.`
+    :`깊이 AI 모델(약 ${mb}MB)을 받아요. 파일을 바로 연 화면이라 저장되지 않아서, 열 때마다 다시 받아요.`,[['받기',depthLoad],['나중에',()=>{}]])}
+async function depthLoad(){
+  DEPTH.state='loading';DEPTH.busy=true;DEPTH.files={};refreshButtons();depthSay('깊이 AI 모델 받는 중… 0%');
+  const t0=performance.now();
+  try{
+    const T=AI.T=AI.T||await import(AI_LIB);
+    const progress_callback=p=>{if(p.status==='progress'&&p.total){DEPTH.files[p.file]=[p.loaded,p.total];depthSay(`깊이 AI 모델 받는 중… ${depthPct()}%`)}};
+    if(DEPTH.f16===null)DEPTH.f16=await depthF16();
+    // WebGPU only with fp16 shader support; otherwise (or if WebGPU fails) wasm q8
+    const make=o=>T.pipeline('depth-estimation',DEPTH_MODEL,{...o,progress_callback});
+    try{DEPTH.pipe=await make(DEPTH.f16?{dtype:'fp16',device:'webgpu'}:{dtype:'q8',device:'wasm'});DEPTH.gpu=DEPTH.f16}
+    catch(err){if(!DEPTH.f16)throw err;console.warn('WebGPU failed, using wasm',err);DEPTH.gpu=false;DEPTH.pipe=await make({dtype:'q8',device:'wasm'})}
+    DEPTH.state='ready';DEPTH.loadMs=Math.round(performance.now()-t0);
+  }catch(err){console.error(err);DEPTH.state='error';toast('깊이 AI 모델을 받지 못했어요. 인터넷 연결을 확인해 주세요')}
+  DEPTH.busy=false;depthSay('');refreshButtons();
+  if(DEPTH.state==='ready')depthConfirm()}
+function depthUsed(){return S.layers.slice(1).some(L=>{const d=L.mask.getContext('2d').getImageData(0,0,S.W,S.H).data;for(let i=3;i<d.length;i+=4)if(d[i]>127)return true;return false})}
+function depthSig(){return S.layers.slice(1).map(L=>{const d=L.mask.getContext('2d').getImageData(0,0,S.W,S.H).data;let c=0;for(let i=3;i<d.length;i+=4)if(d[i]>127)c++;return c}).join()}
+function depthConfirm(){
+  if(depthUsed())ask('2번부터 앞 레이어에 이미 고른 영역이 있어요. 깊이로 나눈 결과로 바꿀까요? 되돌리기 한 번으로 돌아올 수 있어요.',[['바꾸기',depthRun],['그만두기',()=>{}]]);
+  else depthRun()}
+// depth (bigger = nearer) at image size, once per image
+async function depthMap(src){
+  if(DEPTH.src===src&&DEPTH.d)return DEPTH.d;
+  const T=AI.T,id=src.getContext('2d').getImageData(0,0,src.width,src.height),img=new T.RawImage(id.data,src.width,src.height,4).rgb();
+  let out;const t0=performance.now();
+  try{out=await DEPTH.pipe(img)}
+  catch(err){if(!DEPTH.gpu)throw err;console.warn('WebGPU run failed, using wasm',err);DEPTH.gpu=false;
+    DEPTH.pipe=await T.pipeline('depth-estimation',DEPTH_MODEL,{dtype:'q8',device:'wasm'});out=await DEPTH.pipe(img)}
+  DEPTH.runMs=Math.round(performance.now()-t0);
+  const t=out.predicted_depth,h=t.dims[t.dims.length-2],w=t.dims[t.dims.length-1];
+  const cv=S.cv,a=cv.matFromArray(h,w,cv.CV_32FC1,Float32Array.from(t.data)),b=new cv.Mat();
+  try{cv.resize(a,b,new cv.Size(src.width,src.height),0,0,cv.INTER_LINEAR);DEPTH.d=new Float32Array(b.data32F);DEPTH.src=src}
+  finally{a.delete();b.delete()}
+  return DEPTH.d}
+// thresholds on normalized depth: far band (sky) stays on layer 1 only, the rest split near quantiles, snapped to histogram valleys
+function depthThresholds(d,n){
+  const st=[],step=Math.max(1,Math.floor(d.length/200000));for(let i=0;i<d.length;i+=step)st.push(d[i]);st.sort((x,y)=>x-y);
+  const q=p=>st[Math.min(st.length-1,Math.max(0,Math.floor(p*(st.length-1))))];
+  const lo=q(.01),hi=q(.995),sc=1/Math.max(1e-6,hi-lo),B=100,hist=new Float32Array(B);
+  st.forEach(v=>{hist[Math.min(B-1,Math.max(0,Math.floor((v-lo)*sc*B)))]++});
+  const sm=hist.map((_,i)=>{let s=0,c=0;for(let j=i-3;j<=i+3;j++)if(j>=0&&j<B){s+=hist[j];c++}return s/c});
+  const valley=(a,b)=>{let m=-1;for(let i=Math.max(1,a);i<=Math.min(B-2,b);i++)if(m<0||sm[i]<sm[m])m=i;return m};
+  const nq=v=>(v-lo)*sc,dq=t=>{let k=0;while(k<st.length&&nq(st[k])<t)k++;return k/st.length};
+  // far band: first clear valley after the farthest peak (sky, distant wall); lightly smoothed so a thin gap survives
+  const s1=hist.map((_,i)=>(hist[Math.max(0,i-1)]+hist[i]+hist[Math.min(B-1,i+1)])/3);
+  let far=0;
+  for(let i=1;i<=45&&!far;i++){if(!(s1[i]<=s1[i-1]&&s1[i]<s1[i+1]))continue;
+    const pk=Math.max(...s1.slice(0,i)),up=Math.max(...s1.slice(i+1,i+9)),frac=dq((i+.5)/B);
+    if(pk>=s1[i]*1.4&&up>=s1[i]*1.4&&frac>=.03&&frac<=.85)far=(i+.5)/B}
+  if(!far)far=Math.max(.02,nq(q(.12)));
+  const rest=st.filter(v=>nq(v)>=far),rq=p=>nq(rest[Math.min(rest.length-1,Math.floor(p*(rest.length-1)))]);
+  const th=[far];
+  for(let k=1;k<n-1;k++){const t0=rq(k/(n-1)),c=Math.round(t0*B),v=valley(c-5,c+5);let t=v>0&&sm[v]<sm[c]*.85?v/B:t0;
+    t=Math.max(t,th[k-1]+.03);th.push(Math.min(t,.97))}
+  return {lo,sc,th}}
+function depthMasks(d,n){
+  const cv=S.cv,W=S.W,H=S.H,{lo,sc,th}=depthThresholds(d,n),ppm=pxPerMm(),mats=[];
+  const odd=v=>Math.max(3,Math.round(v)|1),minA=W*H*.002,res=[];
+  const kS=cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(odd(ppm*1.5),odd(ppm*1.5)));
+  const kL=cv.getStructuringElement(cv.MORPH_ELLIPSE,new cv.Size(odd(ppm*3),odd(ppm*3)));mats.push(kS,kL);
+  // drop pieces smaller than minA
+  const islands=m=>{const lab=new cv.Mat(),stats=new cv.Mat(),cen=new cv.Mat();
+    try{const nl=cv.connectedComponentsWithStats(m,lab,stats,cen,8,cv.CV_32S),keep=new Uint8Array(nl),ld=lab.data32S,md=m.data;
+      for(let j=1;j<nl;j++)keep[j]=stats.intAt(j,cv.CC_STAT_AREA)>=minA?1:0;
+      for(let i=0;i<md.length;i++)md[i]=md[i]&&keep[ld[i]]?255:0}finally{lab.delete();stats.delete();cen.delete()}};
+  // everything below the topmost pixel of each column, so pieces reach the bottom border.
+  // pieces hanging from the top edge (tree canopies) are already held by the border and don't count as the top
+  const columns=m=>{const lab=new cv.Mat();
+    try{const nl=cv.connectedComponents(m,lab,8,cv.CV_32S),ld=lab.data32S,md=m.data,hang=new Uint8Array(nl);
+      for(let x=0;x<W;x++)if(ld[x])hang[ld[x]]=1;
+      for(let x=0;x<W;x++){let y=0;while(y<H&&(!md[y*W+x]||hang[ld[y*W+x]]))y++;for(;y<H;y++)md[y*W+x]=255}}finally{lab.delete()}};
+  // fill enclosed holes smaller than maxHole
+  const holes=m=>{const inv=new cv.Mat(),lab=new cv.Mat(),stats=new cv.Mat(),cen=new cv.Mat();
+    try{cv.bitwise_not(m,inv);const nl=cv.connectedComponentsWithStats(inv,lab,stats,cen,4,cv.CV_32S),fill=new Uint8Array(nl),ld=lab.data32S,md=m.data;
+      for(let j=1;j<nl;j++){const l=stats.intAt(j,cv.CC_STAT_LEFT),t=stats.intAt(j,cv.CC_STAT_TOP),w=stats.intAt(j,cv.CC_STAT_WIDTH),h=stats.intAt(j,cv.CC_STAT_HEIGHT);
+        fill[j]=l>0&&t>0&&l+w<W&&t+h<H&&stats.intAt(j,cv.CC_STAT_AREA)<W*H*.01?1:0}
+      for(let i=0;i<md.length;i++)if(fill[ld[i]])md[i]=255}finally{inv.delete();lab.delete();stats.delete();cen.delete()}};
+  try{
+    let prev=null;
+    for(let k=0;k<n-1;k++){const t=lo+th[k]/sc,a=new Uint8Array(W*H);for(let i=0;i<a.length;i++)a[i]=d[i]>=t?255:0;
+      const m=cv.matFromArray(H,W,cv.CV_8UC1,a);mats.push(m);
+      cv.morphologyEx(m,m,cv.MORPH_OPEN,kS);cv.morphologyEx(m,m,cv.MORPH_CLOSE,kS);islands(m);
+      columns(m);
+      // hand cutting: no spikes or notches thinner than ~3mm
+      cv.morphologyEx(m,m,cv.MORPH_OPEN,kL);cv.morphologyEx(m,m,cv.MORPH_CLOSE,kL);islands(m);columns(m);holes(m);
+      const out=new Uint8Array(m.data);if(prev)for(let i=0;i<out.length;i++)if(!prev[i])out[i]=0;
+      res.push(out);prev=out}
+  }finally{mats.forEach(x=>x.delete())}
+  DEPTH.info={th:th.map(v=>+v.toFixed(3)),far:+th[0].toFixed(3)};
+  return res}
+async function depthRun(){
+  if(DEPTH.busy||DEPTH.state!=='ready'||!S.W)return;
+  DEPTH.busy=true;refreshButtons();const src=S.src,first=!(DEPTH.src===src&&DEPTH.d),sig0=depthSig();
+  depthSay(first?'그림의 깊이를 재는 중…':'레이어로 나누는 중…');
+  const busy=document.createElement('div');busy.className='busy';busy.textContent='깊이로 나누는 중…';$('editWrap').appendChild(busy);
+  try{
+    await tick();const t0=performance.now();
+    const d=await depthMap(src);if(S.src!==src){depthSay('');return}
+    depthSay('레이어로 나누는 중…');await tick();
+    const t1=performance.now(),n=S.layers.length,ms=depthMasks(d,n);DEPTH.maskMs=Math.round(performance.now()-t1);DEPTH.totalMs=Math.round(performance.now()-t0);
+    const write=()=>{if(S.src!==src||S.layers.length!==n)return;
+    const grp=newGrp();S.aiLast=null;
+    ms.forEach((a,j)=>{const i=j+1,L=S.layers[i];pushUndo(i,grp);L.aiPts=[];L.rect=null;
+      const g=L.mask.getContext('2d'),id=g.createImageData(S.W,S.H),od=id.data;
+      for(let p=0;p<a.length;p++)if(a[p]){const k=p*4;od[k]=od[k+1]=od[k+2]=od[k+3]=255}
+      g.putImageData(id,0,0)});
+    S.active=1;S.poly=[];renderLayers();render();if(S.view==='3d')build3D();
+    toast('깊이로 나눴어요. 시작점이니 도구로 다듬어 주세요');
+    depthSay('깊이로 나눈 결과는 시작점이에요. 레이어마다 경계를 다듬어 주세요. 되돌리기 한 번이면 원래대로 돌아와요.');};
+    // layers edited while the depth was being measured: confirm again before overwriting
+    if(depthSig()!==sig0){depthSay('');ask('깊이를 재는 동안 레이어를 고치셨어요. 깊이로 나눈 결과로 바꿀까요? 되돌리기 한 번으로 돌아올 수 있어요.',[['바꾸기',write],['그만두기',()=>{}]])}
+    else write();
+  }catch(err){console.error(err);depthSay('');toast('깊이로 나누지 못했어요')}
+  finally{busy.remove();DEPTH.busy=false;refreshButtons()}}
+/* ---- */
+/* startup (F3 owns this line) */
+sample();refreshButtons();loadCV();ptStart();
 </script>
 </body></html>
