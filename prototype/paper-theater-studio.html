@@ -97,6 +97,11 @@ button:disabled{opacity:.45;cursor:not-allowed}
 #ask[hidden]{display:none}
 .busy{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.35);color:#fff;font-size:14px;border-radius:6px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* ---------- layer picking ---------- */
+.lrow{grid-template-columns:22px 44px minmax(0,1fr) 74px 26px}
+.lrow .th{width:44px;height:29px;border-radius:4px;border:1px solid var(--line);background:#1f2622;display:block}
+#lpTip{position:absolute;pointer-events:none;z-index:3;background:rgba(0,0,0,.8);color:#fff;font-size:12px;padding:3px 8px;border-radius:6px;white-space:nowrap;border-left:4px solid #fff}
+#view.lpOn{cursor:pointer}
 /* @F1 css */
 /* ---- */
 /* @F2 css */
@@ -152,11 +157,12 @@ button:disabled{opacity:.45;cursor:not-allowed}
       <div class="tabs">
         <button id="tabEdit" aria-pressed="true">편집</button>
         <button id="tab3d" aria-pressed="false">3D 미리보기</button>
+        <button id="tabOv" aria-pressed="false" title="레이어마다 색을 입혀 한눈에 봐요. 색칠된 곳을 누르면 그 레이어로 이동해요">전체 보기</button>
         <span class="spacer"></span>
         <span class="mm" id="sizeLabel"></span>
       </div>
       <div id="editPane">
-        <div id="editWrap"><div id="viewBox"><canvas id="view"></canvas><span id="layerTag" aria-live="polite"></span></div></div>
+        <div id="editWrap"><div id="viewBox"><canvas id="view"></canvas><span id="layerTag" aria-live="polite"></span><span id="lpTip" hidden></span></div></div>
         <div class="hint-bar" id="hint"></div>
       </div>
       <div id="pvPane" hidden>
@@ -283,6 +289,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
     <button id="mPrev" aria-label="이전 레이어">◀</button>
     <span class="mname" id="mName"></span>
     <button id="mNext" aria-label="다음 레이어">▶</button>
+    <button id="mOv" aria-pressed="false" aria-label="전체 보기">전체</button>
     <button id="mUndo" aria-label="되돌리기">↶</button>
     <button id="mRedo" aria-label="다시 하기">↷</button>
     <button id="mFit" style="flex:1.5 1 0">맞춤</button>
@@ -346,10 +353,11 @@ function renderLayers(){
   S.layers.forEach((L,i)=>{
     const r=document.createElement('div');r.className='lrow'+(i===S.active?' on':'');
     const col=layerColor(i);
-    r.innerHTML=`<span class="sw" style="background:${col}">${i+1}</span>
+    r.innerHTML=`<span class="sw" style="background:${col}">${i+1}</span><span class="thp"></span>
       <input type="text" id="lname${i}" value="${L.name.replace(/"/g,'&quot;')}" aria-label="레이어 ${i+1} 이름">
       <span class="zbox"><input type="number" id="lz${i}" min="0" max="80" step="1" value="${L.z}" aria-label="레이어 ${i+1} 거리" ${i===0?'disabled':''}>mm</span>
       ${i===0?'<span></span>':`<button class="del" title="레이어 삭제" aria-label="레이어 ${i+1} 삭제">✕</button>`}`;
+    r.querySelector('.thp').replaceWith(lpThumb(L));
     r.onclick=e=>{if(e.target.closest('input,button'))return;S.active=i;S.poly=[];renderLayers();render()};
     r.querySelector('input[type=text]').onchange=e=>{L.name=e.target.value;render();if(S.view==='3d')build3D()};
     r.querySelector('input[type=text]').onfocus=()=>{if(S.active!==i){S.active=i;S.poly=[];renderLayers();render();$('lname'+i).focus()}};
@@ -1013,6 +1021,95 @@ function sample(){
   S.active=1;S.tool='rect';renderLayers();render();
 }
 $('loadSample').onclick=()=>{sample();if(S.view==='3d')build3D();toast('예시 그림을 불러왔어요')};
+
+/* ---------- layer picking ---------- */
+// overview: each layer's visible part tinted with its colour; click = jump to that layer
+const LP={on:false,ver:0,mv:-1,map:null,ov:null,base:null,hl:null,hover:-1,act:0,own:false,dn:null,tt:0};
+const LPD=new Set(),LPT=new WeakMap(); // layers whose thumbnail is stale / thumbnail canvases
+const LPHINT=' Alt+클릭: 그 자리의 레이어로 이동', LPOV='전체 보기예요. 고르고 싶은 곳을 누르면 그 레이어로 이동해요. (Esc: 닫기)';
+view.title='Alt+클릭: 그 자리의 맨 앞 레이어로 이동';
+function lpThumb(L){let c=LPT.get(L);if(!c){c=mk(88,60);c.className='th';LPT.set(L,c);LPD.add(L);lpThumbSched()}
+  c.title=`${S.layers.indexOf(L)+1}번 · ${L.name}`;return c}
+function lpThumbSched(){if(!LP.tt)LP.tt=setTimeout(()=>{LP.tt=0;lpThumbs()},300)} // throttled: redraw once per 300ms at most
+let lpT=null;
+function lpThumbs(){
+  if(!S.W)return;if(!lpT)lpT=mk(88,60);
+  const s=Math.min(88/S.W,60/S.H),w=S.W*s,h=S.H*s,x=(88-w)/2,y=(60-h)/2;
+  S.layers.forEach((L,i)=>{if(!LPD.has(L))return;LPD.delete(L);const c=LPT.get(L);if(!c)return;
+    const g=c.getContext('2d');g.imageSmoothingQuality='high';g.globalAlpha=1;g.fillStyle='#1f2622';g.fillRect(0,0,88,60);
+    if(i===0){g.drawImage(S.src,x,y,w,h);return}
+    g.globalAlpha=.3;g.drawImage(S.src,x,y,w,h);g.globalAlpha=1;
+    const t=lpT.getContext('2d');t.imageSmoothingQuality='high';t.globalCompositeOperation='source-over';t.clearRect(0,0,88,60);
+    t.drawImage(L.mask,x,y,w,h);t.globalCompositeOperation='source-in';t.drawImage(S.src,x,y,w,h);t.globalCompositeOperation='source-over';
+    g.drawImage(lpT,0,0)})}
+function lpDirtyAll(){S.layers.forEach(L=>LPD.add(L));lpThumbSched()}
+{const pu=pushUndo;pushUndo=function(...a){LP.ver++;const L=S.layers[a[0]===undefined?S.active:a[0]];if(L){LPD.add(L);lpThumbSched()}return pu.apply(this,a)}}
+{const us=undoStep;undoStep=function(...a){LP.ver++;lpDirtyAll();return us.apply(this,a)}}
+// front-most layer per pixel (0 = nothing else covers) + tinted overlay
+function lpBuild(){
+  const W=S.W,H=S.H,N=W*H,map=new Uint8Array(N);
+  for(let j=1;j<S.layers.length;j++){const d=S.layers[j].mask.getContext('2d').getImageData(0,0,W,H).data;for(let i=0;i<N;i++)if(d[i*4+3]>127)map[i]=j}
+  const id=new ImageData(W,H),o=id.data,t=Math.max(1,Math.round(W/700)),sx=[],sy=[],cn=[];S.layers.forEach((_,j)=>{sx[j]=sy[j]=cn[j]=0});
+  const cols=S.layers.map((_,j)=>{const h=layerColor(j);return[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]});
+  for(let y=0,i=0;y<H;y++)for(let x=0;x<W;x++,i++){const m=map[i],k=i*4;
+    if((x+t<W&&map[i+t]!==m)||(y+t<H&&map[i+t*W]!==m)){o[k]=16;o[k+1]=32;o[k+2]=26;o[k+3]=235}
+    else{if(!((x|y)&3)){sx[m]+=x;sy[m]+=y;cn[m]++}const c=cols[m];o[k]=c[0];o[k+1]=c[1];o[k+2]=c[2];o[k+3]=m?205:150}}
+  if(!LP.ov||LP.ov.width!==W||LP.ov.height!==H){LP.ov=mk(W,H);LP.base=mk(W,H)}
+  LP.ov.getContext('2d').putImageData(id,0,0);
+  const g=LP.base.getContext('2d');g.fillStyle='#000';g.fillRect(0,0,W,H);g.globalAlpha=.34;g.drawImage(S.src,0,0);g.globalAlpha=1;g.drawImage(LP.ov,0,0);
+  // number badge inside each big region (nearest region pixel to its centroid)
+  const r=Math.max(9,W/75);g.font=`bold ${Math.round(r*1.3)}px sans-serif`;g.textAlign='center';g.textBaseline='middle';g.lineWidth=2;
+  S.layers.forEach((_,j)=>{if(cn[j]*16<N*.004)return;const mx=sx[j]/cn[j],my=sy[j]/cn[j];let bx=-1,by=0,bd=1e18;
+    for(let y=0;y<H;y+=4)for(let x=0;x<W;x+=4)if(map[y*W+x]===j){const d=(x-mx)*(x-mx)+(y-my)*(y-my);if(d<bd){bd=d;bx=x;by=y}}
+    if(bx<0)return;g.fillStyle=layerColor(j);g.strokeStyle='#10201a';g.beginPath();g.arc(bx,by,r,0,7);g.fill();g.stroke();g.fillStyle='#10201a';g.fillText(j+1,bx,by+1)});
+  LP.map=map;LP.mv=LP.ver;LP.hl=null}
+function lpEnsure(){if(!LP.map||LP.mv!==LP.ver||LP.ov.width!==S.W||LP.ov.height!==S.H)lpBuild()}
+function lpAt(p){const x=Math.floor(p.x),y=Math.floor(p.y);if(x<0||y<0||x>=S.W||y>=S.H)return -1;lpEnsure();return LP.map[y*S.W+x]}
+function lpHL(j){if(LP.hl&&LP.hl.j===j)return LP.hl.c;
+  const id=new ImageData(S.W,S.H),o=id.data,m=LP.map;for(let i=0;i<m.length;i++)if(m[i]===j){const k=i*4;o[k]=o[k+1]=o[k+2]=255;o[k+3]=80}
+  const c=mk(S.W,S.H);c.getContext('2d').putImageData(id,0,0);LP.hl={j,c};return c}
+function lpPaint(){vctx.clearRect(0,0,S.W,S.H);vctx.drawImage(LP.base,0,0);if(LP.hover>=0)vctx.drawImage(lpHL(LP.hover),0,0)}
+function lpSync(){$('tabOv').setAttribute('aria-pressed',LP.on);$('mOv').setAttribute('aria-pressed',LP.on);view.classList.toggle('lpOn',LP.on)}
+function lpHint(){const h=$('hint');if(!S.W)return;
+  if(LP.on)h.textContent=LPOV;else if(!h.textContent.includes('Alt+클릭')&&!matchMedia('(max-width:767px)').matches)h.textContent+=LPHINT}
+function lpOff(){LP.on=false;LP.hover=-1;LP.dn=null;$('lpTip').hidden=true;lpSync()}
+function lpSet(on){
+  if(on&&!S.W)return;
+  if(!on){if(LP.on){lpOff();refreshButtons();render()}return}
+  if(S.view!=='edit')setView('edit');
+  LP.on=true;LP.act=S.active;LP.hover=-1;S.poly=[];lpSync();lpEnsure();LP.own=true;render();LP.own=false}
+function lpPick(j){if(j<0||j>=S.layers.length)return;
+  lpOff();S.active=j;S.poly=[];renderLayers();render();toast(`${j+1}번 · ${S.layers[j].name} 레이어로 이동했어요`)}
+function lpTip(e,j){const t=$('lpTip');if(j<0){t.hidden=true;return}
+  t.textContent=`${j+1}번 · ${S.layers[j].name}`;t.style.borderLeftColor=layerColor(j);t.hidden=false;
+  const vb=$('viewBox').getBoundingClientRect();let x=e.clientX-vb.left+14;if(x+t.offsetWidth>vb.width)x=e.clientX-vb.left-t.offsetWidth-10;
+  t.style.left=Math.max(0,x)+'px';t.style.top=Math.max(0,e.clientY-vb.top+16)+'px'}
+$('tabOv').onclick=()=>lpSet(!LP.on);$('mOv').onclick=()=>lpSet(!LP.on);
+addEventListener('keydown',e=>{if(e.key==='Escape'&&LP.on)lpSet(false)});
+// capture listeners on #view: overview blocks the editing tools; Alt+click jumps to a layer
+const lpStop=e=>{e.stopImmediatePropagation();e.preventDefault()};
+view.addEventListener('pointerdown',e=>{
+  if(!S.W)return;
+  if(LP.on){lpStop(e);LP.dn=(LP.dn||e.button!==0)?null:{id:e.pointerId,x:e.clientX,y:e.clientY};return}
+  if(e.altKey&&e.button===0&&e.pointerType==='mouse'){lpStop(e);const j=lpAt(pt(e));if(j>=0)lpPick(j)}
+},true);
+view.addEventListener('pointerup',e=>{
+  if(!LP.on)return;lpStop(e);const d=LP.dn;LP.dn=null;
+  if(d&&d.id===e.pointerId&&Math.hypot(e.clientX-d.x,e.clientY-d.y)<10)lpPick(lpAt(pt(e)))},true);
+view.addEventListener('pointermove',e=>{
+  if(!LP.on)return;lpStop(e);if(e.pointerType==='touch')return;
+  const j=lpAt(pt(e));lpTip(e,j);if(j!==LP.hover){LP.hover=j;lpPaint()}},true);
+view.addEventListener('pointerleave',()=>{if(LP.on){$('lpTip').hidden=true;if(LP.hover>=0){LP.hover=-1;lpPaint()}}});
+['pointercancel','dblclick','contextmenu'].forEach(n=>view.addEventListener(n,e=>{if(LP.on){if(n==='pointercancel')LP.dn=null;lpStop(e)}},true));
+hook('setup',()=>{lpOff();LP.map=null;LP.ver++;lpDirtyAll()});
+hook('opened',()=>{LP.ver++;lpDirtyAll()});
+hook('layers',()=>{lpDirtyAll();lpHint()});
+hook('render',()=>{
+  if(!S.W)return;
+  if(!LP.on){LP.ver++;const L=cur();if(L&&S.active>0){LPD.add(L);lpThumbSched()}lpHint();return}
+  if(S.active!==LP.act){lpOff();refreshButtons();render();return} // layer changed elsewhere: leave overview
+  if(!LP.own)LP.ver++;
+  lpEnsure();lpPaint();$('layerTag').textContent='전체 보기';$('layerTag').style.borderLeft='4px solid #fff';lpHint()});
 
 /* @F1 js — 가려진 부분 채우기 */
 // multi-resolution push-pull: fills pixels where hole[p] from the others only. d=RGBA, returns RGB floats
