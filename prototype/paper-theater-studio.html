@@ -107,6 +107,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
 #viewBox.zm{overflow:hidden;border-radius:4px}
 #viewBox.zsp #view{cursor:grab}
 #viewBox.zpan #view{cursor:grabbing}
+#brushCur{position:absolute;display:none;pointer-events:none;z-index:2;box-sizing:border-box;border:1.5px solid #fff;border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.7);transform:translate(-50%,-50%)}
+#viewBox.bc #view{cursor:none}
 /* zoom control + view mode live in the tabs row, off the image */
 #zctl,#vmSeg{display:flex;gap:3px;align-items:center}
 #zctl button,#vmSeg button{padding:3px 9px;min-width:26px;justify-content:center;font-size:12px;line-height:1.3;border-radius:6px}
@@ -193,7 +195,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
         <span class="mm" id="sizeLabel"></span>
       </div>
       <div id="editPane">
-        <div id="editWrap"><div id="viewBox"><canvas id="view"></canvas><span id="layerTag" aria-live="polite"></span><span id="lpTip" hidden></span></div></div>
+        <div id="editWrap"><div id="viewBox"><canvas id="view"></canvas><span id="brushCur"></span><span id="layerTag" aria-live="polite"></span><span id="lpTip" hidden></span></div></div>
         <div class="legend" id="legend" hidden aria-label="선 색 설명">
           <span class="lg" title="지금 레이어에 고른 영역의 테두리예요"><i class="sw" style="--c:#ffe14d"></i>고른 영역</span>
           <button class="lg" id="lgCut" aria-pressed="true" title="실제로 자를 선이에요. 눌러서 켜고 끄기"><i class="sw" style="--c:#ff3d6e"></i>자를 선</button>
@@ -1378,6 +1380,25 @@ hook('render',()=>{
     t3.globalCompositeOperation='source-over';t3.clearRect(0,0,W,H);t3.drawImage(AI.pc,0,0);t3.globalCompositeOperation='source-in';t3.fillStyle=col;t3.fillRect(0,0,W,H);t3.globalCompositeOperation='source-over';
     vctx.globalAlpha=.3;vctx.drawImage(tmp3,0,0);vctx.globalAlpha=1;vctx.drawImage(outline(AI.pc,col),0,0)}
 });
+/* ---------- brush cursor ---------- */
+// circle = real stroke width on screen (S.brush/1000 of the displayed width); DOM only, no canvas redraw
+const bcEl=$('brushCur');let bcPos=null,bcTm=0;
+function bcUpdate(){
+  const ok=S.W&&S.active>0&&!LP.on&&['paint','erase','fg','bg'].includes(S.tool)&&!f2Phone();
+  const r=view.getBoundingClientRect(),vb=zbox.getBoundingClientRect(),d=Math.max(3,S.brush*r.width/1000);
+  let x=0,y=0,on=false,po=false;
+  if(ok&&bcPos&&!zsp&&!zpan&&bcPos.x>=r.left&&bcPos.x<=r.right&&bcPos.y>=r.top&&bcPos.y<=r.bottom){x=bcPos.x-vb.left;y=bcPos.y-vb.top;on=po=true}
+  else if(ok&&bcTm){x=vb.width/2;y=vb.height/2;on=true} // slider preview, centred
+  bcEl.style.display=on?'block':'none';zbox.classList.toggle('bc',po);
+  if(on){bcEl.style.width=bcEl.style.height=d+'px';bcEl.style.left=x+'px';bcEl.style.top=y+'px'}}
+zbox.addEventListener('pointermove',e=>{bcPos=e.pointerType==='touch'?null:{x:e.clientX,y:e.clientY};bcUpdate()},true);
+zbox.addEventListener('pointerdown',e=>{if(e.pointerType==='touch')bcPos=null;bcUpdate()},true);
+zbox.addEventListener('pointerup',bcUpdate,true);
+zbox.addEventListener('pointerleave',()=>{bcPos=null;bcUpdate()});
+zbox.addEventListener('wheel',bcUpdate,{passive:true});
+addEventListener('keydown',()=>setTimeout(bcUpdate),true);addEventListener('keyup',()=>setTimeout(bcUpdate),true);
+$('brush').addEventListener('input',()=>{clearTimeout(bcTm);bcTm=setTimeout(()=>{bcTm=0;bcUpdate()},800);bcUpdate()});
+['buttons','layers','setup','opened'].forEach(n=>hook(n,bcUpdate));
 /* @F1 js — 가려진 부분 채우기 */
 // multi-resolution push-pull: fills pixels where hole[p] from the others only. d=RGBA, returns RGB floats
 function f1PushPull(d,hole,w,h){
