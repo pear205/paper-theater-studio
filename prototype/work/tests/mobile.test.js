@@ -116,7 +116,7 @@ const rects = (p) => p.evaluate((k) => Object.fromEntries([...document.querySele
 
   // AI 뺄 점: toggle + label handling (model stubbed)
   const ai = await page.evaluate(async () => {
-    S.active = 1; S.tool = 'ai'; const L = cur(); L.aiPts = [[10, 10, 1]]; refreshAi();
+    S.active = 1; S.tool = 'ai'; const L = cur(); L.aiPts = [[10, 10, 1]]; L.aiLevel = 0; S.aiLast = { L, masks: [{ sel: new Uint8Array(S.W * S.H), area: 0, box: [0, 0, 0, 0] }] }; refreshAi();
     const neg = document.getElementById('aiNeg'), mneg = document.getElementById('mNeg');
     const en = !neg.disabled && !mneg.disabled;
     neg.click(); const on1 = neg.getAttribute('aria-pressed') === 'true' && mneg.getAttribute('aria-pressed') === 'true';
