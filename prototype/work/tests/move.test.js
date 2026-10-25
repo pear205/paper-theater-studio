@@ -9,6 +9,8 @@ const ready = (p) => p.waitForFunction(() => { try { return !!S.cv && S.layers.l
 // the sample's rabbit sits at about x600..770, y485..710 (image px); clear layers 2..5 so the test controls everything
 const prep = (p) => p.evaluate(() => {
   hideAsk(); S.active = 3;
+  // 작은 조각 정리 off: this test needs the raw GrabCut ear-tip slivers to check that thin parts stay on the back layer (tidy would drop them, see tidy.test.js)
+  const tg = document.getElementById('tidySel'); if (tg) tg.checked = false;
   [1, 2, 3, 4].forEach((i) => S.layers[i].mask.getContext('2d').clearRect(0, 0, S.W, S.H));
   S.undo = []; S.redo = []; renderLayers(); render();
   return { x: 600, y: 485, w: 170, h: 225 };
