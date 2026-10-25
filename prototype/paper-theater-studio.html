@@ -211,6 +211,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
           <div class="row">
             <button id="aiNew" title="Esc">새 대상</button>
             <button id="aiNeg" aria-pressed="false" title="켜면 다음 클릭이 '여기는 아니에요' 점이에요 (Shift+클릭과 같아요)" disabled>뺄 점</button>
+            <button id="gather" title="고른 물체를 이 레이어에 모으고, 앞 레이어에 있던 조각은 빼요" disabled>이 레이어로 모으기</button>
           </div>
         </div>
         <div class="field">
@@ -223,6 +224,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
         </div>
         <div class="row" id="modeRow">
           <span class="seg" role="group" aria-label="선택 방식"><button id="selAdd" aria-pressed="true">더하기</button><button id="selSub" aria-pressed="false">빼기</button></span>
+          <button id="gatherR" title="고른 물체를 이 레이어에 모으고, 앞 레이어에 있던 조각은 빼요" disabled hidden>이 레이어로 모으기</button>
         </div>
         <div class="row" id="polyRow" hidden>
           <button id="polyClose">다각형 닫기</button>
@@ -278,7 +280,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
   <div class="mr" id="mCtx" hidden>
     <span class="mr" id="mPoly" hidden><button id="mPolyClose">닫기</button><button id="mPolyCancel">취소</button></span>
     <span class="mr" id="mAi" hidden><button id="mAiNew">새 대상</button><button data-mlv="0" aria-label="후보 1"><canvas width="96" height="72"></canvas></button><button data-mlv="1" aria-label="후보 2"><canvas width="96" height="72"></canvas></button><button data-mlv="2" aria-label="후보 3"><canvas width="96" height="72"></canvas></button><button id="mNeg" aria-pressed="false">뺄 점</button></span>
-    <span class="mr" id="mMode" hidden><button id="mAdd">더하기</button><button id="mSub">빼기</button></span>
+    <span class="mr" id="mMode" hidden><button id="mAdd">더하기</button><button id="mSub">빼기</button><button id="mGather" disabled>모으기</button></span>
     <span class="mr" id="mBrush" hidden style="flex:1"><span class="ml">붓</span><input id="mBrushR" type="range" min="4" max="120" aria-label="붓 크기"><span class="ml" id="mBrushOut"></span></span>
   </div>
   <div class="mr">
@@ -663,7 +665,7 @@ function refreshAi(){
   if(AI.thFor!==(has?S.aiLast:null)){AI.thFor=has?S.aiLast:null;aiThumbs()}
   document.querySelectorAll('[data-lv]').forEach(b=>{const k=+b.dataset.lv,m=has&&S.aiLast.masks[k];b.disabled=!has;b.setAttribute('aria-pressed',has&&(L.aiLevel||0)===k);
     const t=`후보 ${k+1} (${sz[k]}`+(m?`, 그림의 ${(m.area/(S.W*S.H)*100).toFixed(1)}%`:'')+')';b.setAttribute('aria-label',t);b.title=t});
-  $('aiNew').disabled=!(L&&L.aiPts&&L.aiPts.length);f2Sync()}
+  $('aiNew').disabled=!(L&&L.aiPts&&L.aiPts.length);gatherSync();f2Sync()}
 async function aiStart(){
   if(aiBlocked()||AI.state==='loading'||AI.state==='ready')return;
   if(await aiCached()){aiLoad();return}
@@ -1180,6 +1182,41 @@ hook('render',()=>{
   if(S.active!==LP.act){lpOff();refreshButtons();render();return} // layer changed elsewhere: leave overview
   lpEnsure();lpPaint();$('layerTag').textContent='전체 보기';$('layerTag').style.borderLeft='4px solid #fff';lpHint()});
 
+/* ---------- gather to layer ---------- */
+// object = AI candidate of this session, or what this GrabCut session added on top of gcBase
+function gatherOk(){const L=cur();if(!L||S.active===0||!S.W||L.gcMode==='sub')return false;
+  return S.tool==='ai'?!!(S.aiLast&&S.aiLast.L===L&&S.aiLast.masks[L.aiLevel||0]):S.tool==='rect'&&!!L.gcBase}
+function gatherSync(){const ok=gatherOk(),t=S.tool;
+  ['gather','gatherR','mGather'].forEach(id=>{const b=$(id);if(b)b.disabled=!ok});
+  $('gatherR').hidden=t!=='rect'||!ok;$('mGather').hidden=t!=='rect'&&t!=='ai'}
+function gatherObj(){const L=cur(),n=S.W*S.H,o=new Uint8Array(n);
+  if(S.tool==='ai'){const sel=S.aiLast.masks[L.aiLevel||0].sel;for(let i=0;i<n;i++)o[i]=sel[i]?1:0}
+  else{const d=L.mask.getContext('2d').getImageData(0,0,S.W,S.H).data,b=L.gcBase.data;for(let i=0;i<n;i++)o[i]=d[i*4+3]>127&&b[i*4+3]<=127?1:0}
+  return o}
+// pixels of NOT m that cannot reach the image border (4-connected)
+function enclosed(m){const W=S.W,H=S.H,n=W*H,out=new Uint8Array(n),st=new Int32Array(n);let sp=0;
+  const push=p=>{if(!m[p]&&!out[p]){out[p]=1;st[sp++]=p}};
+  for(let x=0;x<W;x++){push(x);push((H-1)*W+x)}for(let y=0;y<H;y++){push(y*W);push(y*W+W-1)}
+  while(sp){const p=st[--sp],x=p%W;if(x>0)push(p-1);if(x<W-1)push(p+1);if(p>=W)push(p-W);if(p<n-W)push(p+W)}
+  for(let i=0;i<n;i++)out[i]=!m[i]&&!out[i]?1:0;return out}
+function gatherRun(){if(!gatherOk())return;
+  const W=S.W,n=W*S.H,A=S.active,obj=gatherObj();let cnt=0;for(let i=0;i<n;i++)cnt+=obj[i];if(!cnt)return;
+  const grp=newGrp(),plan=[]; // [layer index, new binary mask]
+  const rd=i=>{const d=S.layers[i].mask.getContext('2d').getImageData(0,0,W,S.H).data,m=new Uint8Array(n);for(let k=0;k<n;k++)m[k]=d[k*4+3]>127?1:0;return m};
+  for(let i=1;i<S.layers.length;i++){if(i===A)continue;
+    const m=rd(i);let hit=false;for(let k=0;k<n;k++)if(m[k]&&obj[k]){hit=true;break}if(!hit)continue;
+    const r=new Uint8Array(n);for(let k=0;k<n;k++)r[k]=m[k]&&!obj[k]?1:0;
+    if(i<A){const h=enclosed(r);for(let k=0;k<n;k++)if(m[k]&&obj[k]&&h[k])r[k]=1} // behind: keep parts hidden behind the object anyway
+    let ch=false;for(let k=0;k<n;k++)if(r[k]!==m[k]){ch=true;break}if(ch)plan.push([i,r,i>A])}
+  const ma=rd(A),ra=new Uint8Array(n);for(let k=0;k<n;k++)ra[k]=ma[k]||obj[k]?1:0;plan.push([A,ra,false]);
+  plan.forEach(([i,r])=>{pushUndo(i,grp);const g=S.layers[i].mask.getContext('2d'),id=g.createImageData(W,S.H),d=id.data;
+    for(let k=0;k<n;k++)if(r[k]){d[k*4]=d[k*4+1]=d[k*4+2]=d[k*4+3]=255}g.putImageData(id,0,0);S.layers[i].__d=true});
+  S.aiLast=null;AI.hv=null;AI.pv=null;const L=cur();L.aiPts=[];L.gcBase=null;L.gcKeep=false;
+  const fr=plan.filter(q=>q[2]).length;
+  toast(`${A+1}번 레이어로 모았어요`+(fr?`. 앞 레이어 ${fr}곳에서 뺐어요`:''));
+  if(typeof ptSched==='function')ptSched();refreshAi();render()}
+['gather','gatherR','mGather'].forEach(id=>$(id).addEventListener('click',gatherRun));
+hook('buttons',gatherSync);hook('render',gatherSync); // GrabCut result lands via render()
 /* @F1 js — 가려진 부분 채우기 */
 // multi-resolution push-pull: fills pixels where hole[p] from the others only. d=RGBA, returns RGB floats
 function f1PushPull(d,hole,w,h){
