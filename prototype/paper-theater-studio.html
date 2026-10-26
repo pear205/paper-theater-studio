@@ -1611,7 +1611,7 @@ hook('setup',()=>{dxText();$('dxManual').hidden=$('dxManualNote').hidden=true;dx
 /* ---------- guide image ---------- */
 // a separate simplified picture (e.g. an AI redraw) used only to find edges (segSrc). Print/display never uses it.
 // S.guideRaw = the upload, S.guideH = raw->frame matrix (aspect fit or ORB homography, row-major 3x3), S.guideT = hand adjustment {tx,ty,s} on top, S.guide = raw warped into the W x H frame
-const GD={tok:0,blob:null,max:2000,work:800};
+const GD={tok:0,blob:null,max:2000,work:800,strong:100,ecc:.45}; // strong = ORB inliers trusted without the fallback, ecc = lowest ECC correlation accepted
 const gdMul=(a,b)=>{const r=new Array(9);for(let i=0;i<3;i++)for(let j=0;j<3;j++)r[i*3+j]=a[i*3]*b[j]+a[i*3+1]*b[3+j]+a[i*3+2]*b[6+j];return r};
 function gdSay(t,warn){const e=$('guideState');e.textContent=t||'';e.hidden=!t;e.classList.toggle('warn',!!warn)}
 // scale to cover the frame, centred
@@ -1628,7 +1628,53 @@ function gdWarp(){
       const t=mk(W,H);t.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(dst.data),W,H),0,0);g.drawImage(t,0,0)}
     finally{mats.forEach(m=>m.delete())}}
   S.guide=c}
-// ORB + ratio test + RANSAC homography between the aspect-fitted upload and the original. -> {H (raw->frame) or null, inliers, how}
+// 3x3 inverse; working-size matrix -> full size (D^-1 * m * D, normalised)
+const gdInv=m=>{const [a,b,c,d,e,f,g,h,i]=m,A=e*i-f*h,B=f*g-d*i,C=d*h-e*g,det=a*A+b*B+c*C;return [A,c*h-b*i,b*f-c*e,B,a*i-c*g,c*d-a*f,C,b*g-a*h,a*e-b*d].map(v=>v/det)};
+const gdFull=(m,k)=>{const r=gdMul([1/k,0,0,0,1/k,0,0,0,1],gdMul(m,[k,0,0,0,k,0,0,0,1])),s=r[8]||1;return r.map(v=>v/s)};
+// plausible guide->frame matrix: scale range lim, no mirror, anisotropy <= aniso, little perspective, rotation <= rot deg (0 = any), not thrown off the frame
+function gdSane(M,lim,rot,aniso){
+  const W=S.W,H=S.H,a=M[0],b=M[1],c=M[3],d=M[4],det=a*d-b*c,F=a*a+b*b+c*c+d*d,s1=Math.sqrt((F+Math.sqrt(Math.max(0,F*F-4*det*det)))/2),s2=Math.abs(det)/(s1||1),sc=Math.sqrt(Math.abs(det));
+  return det>0&&sc>=lim[0]&&sc<=lim[1]&&s1/(s2||1e-9)<=aniso&&Math.abs(M[6])*W<.3&&Math.abs(M[7])*H<.3&&Math.abs(M[2])<.5*W&&Math.abs(M[5])<.5*H&&(!rot||Math.abs(Math.atan2(c-b,a+d))*57.3<=rot)}
+// blurred edge-strength map (Sobel magnitude, float) of a grey Mat, long side n
+function gdEdge(g,n,sg,mats){
+  const cv=S.cv,T=m=>{mats.push(m);return m},q=n/Math.max(g.cols,g.rows),a=T(new cv.Mat()),f=T(new cv.Mat()),gx=T(new cv.Mat()),gy=T(new cv.Mat()),m=T(new cv.Mat());
+  cv.resize(g,a,new cv.Size(Math.round(g.cols*q),Math.round(g.rows*q)),0,0,cv.INTER_AREA);a.convertTo(f,cv.CV_32F,1/255);cv.GaussianBlur(f,f,new cv.Size(0,0),1.2);
+  cv.Sobel(f,gx,cv.CV_32F,1,0,3);cv.Sobel(f,gy,cv.CV_32F,0,1,3);cv.magnitude(gx,gy,m);cv.GaussianBlur(m,m,new cv.Size(0,0),sg);return m}
+// coarse search: scale 0.85-1.15 x translation, normalised cross-correlation of the guide's centre 70% against the frame. -> {cc, s:[sx,sy], t:[tx,ty]} (guide->frame, map pixels)
+function gdCoarse(E1,E2){
+  const cv=S.cv,w2=E2.cols,h2=E2.rows,tw=Math.round(w2*.7),th=Math.round(h2*.7);let best={cc:-2,s:[1,1],t:[0,0]};
+  for(let s=.85;s<=1.1501;s+=.02){
+    const sw=Math.round(w2*s),sh=Math.round(h2*s),E=new cv.Mat(),res=new cv.Mat(),cx=Math.round((sw-tw)/2),cy=Math.round((sh-th)/2);
+    cv.resize(E1,E,new cv.Size(sw,sh),0,0,cv.INTER_LINEAR);const crop=E.roi(new cv.Rect(cx,cy,tw,th));
+    try{cv.matchTemplate(E2,crop,res,cv.TM_CCOEFF_NORMED);const mm=cv.minMaxLoc(res);if(mm.maxVal>best.cc)best={cc:mm.maxVal,s:[sw/w2,sh/h2],t:[mm.maxLoc.x-cx,mm.maxLoc.y-cy]}}
+    finally{crop.delete();res.delete();E.delete()}}
+  return best}
+// ORB + ratio test + RANSAC homography. -> {H: working-size matrix or null, inl}
+function gdOrb(g1,g2,mats){
+  const cv=S.cv,orb=new cv.ORB(1500),bf=new cv.BFMatcher(cv.NORM_HAMMING,false),mm=new cv.DMatchVectorVector(),k1=new cv.KeyPointVector(),k2=new cv.KeyPointVector(),d1=new cv.Mat(),d2=new cv.Mat(),none=new cv.Mat();mats.push(orb,bf,mm,k1,k2,d1,d2,none);
+  orb.detectAndCompute(g1,none,k1,d1);orb.detectAndCompute(g2,none,k2,d2);
+  if(d1.rows<10||d2.rows<10)return {H:null,inl:0};
+  bf.knnMatch(d1,d2,mm,2);
+  const P=[],Q=[];
+  for(let i=0;i<mm.size();i++){const m=mm.get(i);try{if(m.size()<2)continue;const a=m.get(0),b=m.get(1);
+    if(a.distance<.75*b.distance){const p=k1.get(a.queryIdx).pt,q=k2.get(a.trainIdx).pt;P.push(p.x,p.y);Q.push(q.x,q.y)}}finally{m.delete()}}
+  const n=P.length/2;if(n<8)return {H:null,inl:0};
+  const ps=cv.matFromArray(n,1,cv.CV_32FC2,P),qs=cv.matFromArray(n,1,cv.CV_32FC2,Q),ms=new cv.Mat();mats.push(ps,qs,ms);
+  const hm=cv.findHomography(ps,qs,cv.RANSAC,3,ms);
+  if(!hm||hm.rows!==3)return {H:null,inl:0};
+  mats.push(hm);let inl=0;for(let i=0;i<ms.data.length;i++)if(ms.data[i])inl++;
+  return {H:Array.from(hm.data64F),inl}}
+// fallback for flat redraws (few keypoints): coarse edge-map search at 256 px, then findTransformECC (affine) at 512 px on edge maps, masked to the guide's centre 80% (a shifted guide has empty margins). -> {H: working-size matrix or null, cc}
+function gdEcc(g1,g2,mats){
+  const cv=S.cv;if(!cv.findTransformECC||!cv.matchTemplate)return {H:null,cc:0};
+  const e1=gdEdge(g1,256,2,mats),e2=gdEdge(g2,256,2,mats),co=gdCoarse(e1,e2);if(co.cc<.1)return {H:null,cc:co.cc};
+  const f1=gdEdge(g1,512,2,mats),f2=gdEdge(g2,512,2,mats),r=2,mask=cv.Mat.zeros(f1.rows,f1.cols,cv.CV_8U),cr=new cv.TermCriteria(cv.TermCriteria_COUNT+cv.TermCriteria_EPS,60,1e-5),
+    wp=cv.matFromArray(2,3,cv.CV_32F,[1/co.s[0],0,-r*co.t[0]/co.s[0],0,1/co.s[1],-r*co.t[1]/co.s[1]]);mats.push(mask,wp); // frame->guide start from the coarse result
+  cv.rectangle(mask,new cv.Point(Math.round(f1.cols*.1),Math.round(f1.rows*.1)),new cv.Point(Math.round(f1.cols*.9),Math.round(f1.rows*.9)),new cv.Scalar(255),-1);
+  const cc=cv.findTransformECC(f2,f1,wp,cv.MOTION_AFFINE,cr,mask,5),w=Array.from(wp.data32F),q=Math.max(g1.cols,g1.rows)/512;
+  if(!(cc>=0)||!w.every(Number.isFinite))return {H:null,cc:0};
+  return {H:gdMul([q,0,0,0,q,0,0,0,1],gdMul(gdInv([w[0],w[1],w[2],w[3],w[4],w[5],0,0,1]),[1/q,0,0,0,1/q,0,0,0,1])),cc}}
+// ORB first (strong match = trusted); weak or no ORB -> edge-map fallback; weak ORB stays the last resort. -> {H (raw->frame) or null, inliers, how, cc}
 function gdAlign(){
   const cv=S.cv,W=S.W,H=S.H,raw=S.guideRaw,A=gdAspect(raw.width,raw.height);
   if(!cv||!cv.ORB||!cv.BFMatcher||!cv.findHomography)return {H:null,inliers:0,how:'aspect'};
@@ -1636,35 +1682,20 @@ function gdAlign(){
   const grey=(img,m)=>{const c=mk(w,h),g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,w,h);g.setTransform(k*m[0],k*m[3],k*m[1],k*m[4],k*m[2],k*m[5]);g.drawImage(img,0,0);
     const a=cv.matFromImageData(g.getImageData(0,0,w,h)),o=new cv.Mat();mats.push(a,o);cv.cvtColor(a,o,cv.COLOR_RGBA2GRAY);return o};
   try{
-    const g1=grey(raw,A),g2=grey(S.src,[1,0,0,0,1,0,0,0,1]),orb=new cv.ORB(1500),bf=new cv.BFMatcher(cv.NORM_HAMMING,false),mm=new cv.DMatchVectorVector();
-    const k1=new cv.KeyPointVector(),k2=new cv.KeyPointVector(),d1=new cv.Mat(),d2=new cv.Mat(),none=new cv.Mat();mats.push(orb,bf,mm,k1,k2,d1,d2,none);
-    orb.detectAndCompute(g1,none,k1,d1);orb.detectAndCompute(g2,none,k2,d2);
-    if(d1.rows<10||d2.rows<10)return {H:null,inliers:0,how:'orb'};
-    bf.knnMatch(d1,d2,mm,2);
-    const P=[],Q=[];
-    for(let i=0;i<mm.size();i++){const m=mm.get(i);try{if(m.size()<2)continue;const a=m.get(0),b=m.get(1);
-      if(a.distance<.75*b.distance){const p=k1.get(a.queryIdx).pt,q=k2.get(a.trainIdx).pt;P.push(p.x,p.y);Q.push(q.x,q.y)}}finally{m.delete()}}
-    const n=P.length/2;if(n<8)return {H:null,inliers:0,how:'orb'};
-    const ps=cv.matFromArray(n,1,cv.CV_32FC2,P),qs=cv.matFromArray(n,1,cv.CV_32FC2,Q),ms=new cv.Mat();mats.push(ps,qs,ms);
-    const hm=cv.findHomography(ps,qs,cv.RANSAC,3,ms);
-    if(!hm||hm.rows!==3)return {H:null,inliers:0,how:'orb'};
-    mats.push(hm);
-    let inl=0;for(let i=0;i<ms.data.length;i++)if(ms.data[i])inl++;
-    // working-size matrix -> full size: D^-1 * H * D
-    const h0=Array.from(hm.data64F),D=[k,0,0,0,k,0,0,0,1],Di=[1/k,0,0,0,1/k,0,0,0,1],H1=gdMul(Di,gdMul(h0,D)),s=H1[8]||1;for(let i=0;i<9;i++)H1[i]/=s;
-    // degenerate? scale 0.5-2, no mirror, little shear, little perspective, not thrown off the frame
-    const a=H1[0],b=H1[1],c=H1[3],d=H1[4],det=a*d-b*c,F=a*a+b*b+c*c+d*d,s1=Math.sqrt((F+Math.sqrt(Math.max(0,F*F-4*det*det)))/2),s2=Math.abs(det)/(s1||1),sc=Math.sqrt(Math.abs(det));
-    const sane=det>0&&sc>=.5&&sc<=2&&s1/(s2||1e-9)<=1.3&&Math.abs(H1[6])*W<.3&&Math.abs(H1[7])*H<.3&&Math.abs(H1[2])<.5*W&&Math.abs(H1[5])<.5*H;
-    return {H:sane&&inl>=25?gdMul(H1,A):null,inliers:inl,how:'orb'}
+    const g1=grey(raw,A),g2=grey(S.src,[1,0,0,0,1,0,0,0,1]),o=gdOrb(g1,g2,mats);let oh=null;
+    if(o.H){const f=gdFull(o.H,k);if(gdSane(f,[.5,2],0,1.3)&&o.inl>=25)oh=f}
+    if(oh&&o.inl>=GD.strong)return {H:gdMul(oh,A),inliers:o.inl,how:'orb'};
+    try{const e=gdEcc(g1,g2,mats);if(e.H&&e.cc>=GD.ecc){const f=gdFull(e.H,k);if(gdSane(f,[.8,1.25],5,1.1))return {H:gdMul(f,A),inliers:0,how:'ecc',cc:e.cc}}}catch(err){console.error(err)}
+    return {H:oh?gdMul(oh,A):null,inliers:o.inl,how:'orb'}
   }finally{mats.forEach(m=>m.delete())}}
 // base matrix + status text; the hand adjustment starts over
 function gdAuto(){
   const raw=S.guideRaw;S.guideT={tx:0,ty:0,s:1};S.guideH=gdAspect(raw.width,raw.height);
   let r;try{r=gdAlign()}catch(e){console.error(e);r={H:null,inliers:0,how:'error'}}
-  if(r.H){S.guideH=r.H;gdSay(`위치를 맞췄어요 (맞은 점 ${r.inliers}개)`)}
+  if(r.H){S.guideH=r.H;gdSay(r.how==='ecc'?'위치를 맞췄어요 (전체 비교)':`위치를 맞췄어요 (특징점 ${r.inliers}개)`)}
   else if(r.how==='aspect')gdSay('이 화면에서는 자동 맞추기를 쓸 수 없어요. 가로세로 비율로만 맞췄으니 겹쳐 보고 손으로 맞춰 주세요',true);
   else gdSay('자동으로 못 맞췄어요. 겹쳐 보고 손으로 맞춰 주세요',true);
-  S.guideHow=r.H?'orb':(r.how==='aspect'?'aspect':'fail');S.guideInl=r.inliers}
+  S.guideHow=r.H?r.how:(r.how==='aspect'?'aspect':'fail');S.guideInl=r.inliers}
 // refresh S.guide, controls and the editor; save soon
 function gdApply(){gdWarp();S.guideV=(S.guideV|0)+1;gdSync();render();ptSched()}
 function gdSync(){
