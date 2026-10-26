@@ -1714,13 +1714,13 @@ function gdAlign(){
     if(o.H){const f=gdFull(o.H,k);if(gdSane(f,[.5,2],0,1.3)&&o.inl>=25)oh=f}
     if(oh&&o.inl>=GD.strong)return {H:gdMul(oh,A),inliers:o.inl,how:'orb'};
     try{const e=gdEcc(g1,g2,mats);if(e.H&&e.cc>=GD.ecc){const f=gdFull(e.H,k);if(gdSane(f,[.8,1.25],5,1.1))return {H:gdMul(f,A),inliers:0,how:'ecc',cc:e.cc}}}catch(err){console.error(err)}
-    return {H:oh?gdMul(oh,A):null,inliers:o.inl,how:'orb'}
+    return {H:oh?gdMul(oh,A):null,inliers:o.inl,how:'orb-weak'} // last resort: corners can be off by tens of px
   }finally{mats.forEach(m=>m.delete())}}
 // base matrix + status text; the hand adjustment starts over
 function gdAuto(){
   const raw=S.guideRaw;S.guideT={tx:0,ty:0,s:1};S.guideH=gdAspect(raw.width,raw.height);
   let r;try{r=gdAlign()}catch(e){console.error(e);r={H:null,inliers:0,how:'error'}}
-  if(r.H){S.guideH=r.H;gdSay(r.how==='ecc'?'위치를 맞췄어요 (전체 비교)':`위치를 맞췄어요 (특징점 ${r.inliers}개)`)}
+  if(r.H){S.guideH=r.H;gdSay(r.how==='ecc'?'위치를 맞췄어요 (전체 비교)':r.how==='orb-weak'?`대략 맞췄어요 (특징점 ${r.inliers}개). 겹쳐 보고 어긋났으면 손으로 맞춰 주세요`:`위치를 맞췄어요 (특징점 ${r.inliers}개)`);if(r.how==='orb-weak'){const sh=$('guideShow');if(sh&&!sh.checked){sh.checked=true;sh.dispatchEvent(new Event('change'))}}}
   else if(r.how==='aspect')gdSay('이 화면에서는 자동 맞추기를 쓸 수 없어요. 가로세로 비율로만 맞췄으니 겹쳐 보고 손으로 맞춰 주세요',true);
   else gdSay('자동으로 못 맞췄어요. 겹쳐 보고 손으로 맞춰 주세요',true);
   S.guideHow=r.H?r.how:(r.how==='aspect'?'aspect':'fail');S.guideInl=r.inliers}
