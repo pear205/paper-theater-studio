@@ -23,6 +23,7 @@ const counts = () => {
     page.on('pageerror', e => errors.push(String(e)));
     await page.goto(URL_); await page.waitForFunction(() => { try { return S.W > 0 && typeof PT === 'object'; } catch (e) { return false; } });
     await page.waitForTimeout(600);
+    await page.evaluate(() => { document.getElementById('saveCard').open = true; }); // 작업 저장 card starts collapsed; its buttons are only clickable when open
     return page;
   };
   const askText = p => p.evaluate(() => $('ask').hidden ? null : $('askMsg').textContent);

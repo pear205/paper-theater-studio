@@ -15,10 +15,10 @@ const load = (page, build) => page.evaluate(async (b) => { const c = await eval(
   const ctx = await browser.newContext({ viewport: { width: 1360, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'], acceptDownloads: true });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(url); await ready(page);
+  await page.goto(url); await ready(page); await page.evaluate(() => document.querySelectorAll('details.fold').forEach((d) => { d.open = true; })); // the folding cards start collapsed; tests of their contents open them first
 
   // card position and text
-  const card = await page.evaluate(() => { const c = document.getElementById('aiHelper'), k = [...document.querySelectorAll('.card h2')].find((h) => h.textContent === '키트 스타일').parentElement; return { title: c.querySelector('h2').textContent, adj: c.nextElementSibling === k, steps: c.querySelectorAll('ol li').length, txt: c.textContent }; });
+  const card = await page.evaluate(() => { const c = document.getElementById('aiHelper'), k = [...document.querySelectorAll('.card h2')].find((h) => h.textContent === '키트 스타일').parentElement; return { title: c.querySelector('h2').firstChild.textContent, /* h2 now also holds the difficulty hint span.sfx (layout feature), so take its first text node */ adj: c.nextElementSibling === k, steps: c.querySelectorAll('ol li').length, txt: c.textContent }; });
   check('card: title, immediately before 키트 스타일, 3 steps', card.title === '생성형 AI 도우미' && card.adj && card.steps === 3, card);
   check('card: guide names the 경계 찾기용 그림 card', card.txt.includes('경계 찾기용 그림'));
 
@@ -53,7 +53,7 @@ const load = (page, build) => page.evaluate(async (b) => { const c = await eval(
 
   // 5) fallback: no navigator.clipboard -> execCommand; both fail -> manual box
   const p2 = await ctx.newPage(); p2.on('pageerror', (e) => errors.push(e.message));
-  await p2.goto(url); await ready(p2);
+  await p2.goto(url); await ready(p2); await p2.evaluate(() => document.querySelectorAll('details.fold').forEach((d) => { d.open = true; })); // the folding cards start collapsed; tests of their contents open them first
   await p2.evaluate(() => { Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true }); window.__cp = null; document.execCommand = (c) => { window.__cp = { c, v: document.activeElement && document.activeElement.value }; return true; }; });
   await p2.click('#dxCopy');
   const fb = await p2.evaluate(() => ({ cp: window.__cp, toast: document.getElementById('toast').textContent, box: document.getElementById('dxManual').hidden, left: document.querySelectorAll('textarea[style*="-9999px"]').length }));
@@ -82,7 +82,7 @@ const load = (page, build) => page.evaluate(async (b) => { const c = await eval(
   // 7) phone layout
   const pctx = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   const ph = await pctx.newPage(); ph.on('pageerror', (e) => errors.push('phone: ' + e.message));
-  await ph.goto(url); await ready(ph);
+  await ph.goto(url); await ready(ph); await ph.evaluate(() => document.querySelectorAll('details.fold').forEach((d) => { d.open = true; })); // the folding cards start collapsed; tests of their contents open them first
   const lay = await ph.evaluate(() => { const c = document.getElementById('aiHelper'), r = c.getBoundingClientRect(); const bad = [...c.querySelectorAll('*')].filter((e) => e.getBoundingClientRect().right > innerWidth + 1).map((e) => e.id || e.tagName); return { sw: document.documentElement.scrollWidth, iw: innerWidth, right: Math.round(r.right), w: Math.round(r.width), bad }; });
   check('phone: no horizontal scroll, card inside the viewport', lay.sw <= lay.iw && lay.right <= lay.iw && lay.bad.length === 0, lay);
   await ph.evaluate(() => { document.getElementById('dxDet').open = true; });
