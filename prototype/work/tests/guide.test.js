@@ -53,7 +53,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     return out; });
   check('align: ORB homography used (not just the aspect fit)', st.how === 'orb', st);
   check('align: recovers the +12,+8 / 98% transform within 2 px at 5 points', err.every((e) => e < 2), err);
-  check('align: status "위치를 맞췄어요 (맞은 점 N개)"', /^위치를 맞췄어요 \(맞은 점 \d+개\)$/.test(st.st) && st.inl >= 25, st);
+  check('align: status "위치를 맞췄어요 (특징점 N개)"', /^위치를 맞췄어요 \(특징점 \d+개\)$/.test(st.st) && st.inl >= 25, st);
   check('align: done in < 5 s', ms < 5000, ms);
   const g1 = await page.evaluate(() => { const a = S.guide.getContext('2d').getImageData(100, 50, 800, 550).data, b = S.src.getContext('2d').getImageData(100, 50, 800, 550).data; let d = 0; for (let i = 0; i < a.length; i += 4) d += Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]); return { w: S.guide.width, h: S.guide.height, W: S.W, H: S.H, diff: d / (a.length / 4) / 3 }; });
   check('guide: S.guide is exactly W x H and matches the original (mean diff < 6)', g1.w === g1.W && g1.h === g1.H && g1.diff < 6, g1);
@@ -189,6 +189,49 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await page.setViewportSize({ width: 1360, height: 900 }); await sleep(300);
   await page.evaluate(() => { document.getElementById('guideCard').scrollIntoView(); });
   await page.screenshot({ path: path.join(OUT, 'guide-desktop.png') });
+
+  // 11) flat redraw stand-ins: ORB first, else edge-map search + ECC; an unrelated picture is rejected
+  await page.click('#guideDel'); await page.waitForFunction(() => !!S.kit && !KIT.job, null, { timeout: 30000 });
+  const standIn = (page, kind) => page.evaluate(async (kind) => {
+    const wait = async (f) => { for (let i = 0; i < 200 && !f(); i++) await new Promise((r) => setTimeout(r, 100)); };
+    const setStr = async (v) => { const e = document.getElementById('kitStr'); e.value = v; e.dispatchEvent(new Event('input', { bubbles: true })); await new Promise((r) => setTimeout(r, 700)); await wait(() => !KIT.job && S.kit); };
+    let base = S.src;
+    if (kind === 'kit5') { await setStr(5); base = S.kit; } else if (kind === 'kit3') { await setStr(3); base = S.kit; }
+    else if (kind === 'poster') { // heavy bilateral filtering + posterising
+      const cv = S.cv, a = cv.matFromImageData(S.src.getContext('2d').getImageData(0, 0, S.W, S.H)), rgb = new cv.Mat(); cv.cvtColor(a, rgb, cv.COLOR_RGBA2RGB); let cur = rgb;
+      for (let i = 0; i < 6; i++) { const o = new cv.Mat(); cv.bilateralFilter(cur, o, 9, 60, 9); if (cur !== rgb) cur.delete(); cur = o; }
+      for (let i = 0; i < cur.data.length; i++) cur.data[i] = Math.round(cur.data[i] / 48) * 48;
+      const rgba = new cv.Mat(); cv.cvtColor(cur, rgba, cv.COLOR_RGB2RGBA); base = document.createElement('canvas'); base.width = S.W; base.height = S.H;
+      base.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(rgba.data), S.W, S.H), 0, 0); [a, rgb, cur, rgba].forEach((m) => m.delete());
+    }
+    const c = document.createElement('canvas'); c.width = base.width; c.height = base.height; c.getContext('2d').drawImage(base, 0, 0); return c.toDataURL('image/png').split(',')[1];
+  }, kind);
+  const drawn = (page, b64, dx, dy, sc) => page.evaluate(async ([b64, dx, dy, sc]) => {
+    const im = new Image(); im.src = 'data:image/png;base64,' + b64; await im.decode();
+    const c = document.createElement('canvas'); c.width = S.W; c.height = S.H; const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.setTransform(sc, 0, 0, sc, dx, dy); g.drawImage(im, 0, 0);
+    return c.toDataURL('image/png').split(',')[1];
+  }, [b64, dx, dy, sc]);
+  const cases = [['a: kit strength 5, +15,+10, 103%', 'kit5', 15, 10, 1.03, 'ecc'], ['b: kit strength 3, -20,+6, 97%', 'kit3', -20, 6, 0.97, 'ecc'], ['c: bilateral + posterised, +8,-12, 100%', 'poster', 8, -12, 1, null], ['d: original shifted, +12,+8, 98%', 'src', 12, 8, 0.98, 'orb']];
+  const times = {};
+  for (const [name, kind, dx, dy, sc, how] of cases) {
+    const buf = Buffer.from(await drawn(page, await standIn(page, kind), dx, dy, sc), 'base64');
+    await page.evaluate(() => gdClear()); const t1 = Date.now(); await upload(page, buf, 'guide.png'); await settled(page); const ms = Date.now() - t1;
+    const st = await state(page);
+    const errs = await page.evaluate(([dx, dy, sc]) => { const M = gdMatrix(); return [[500, 336], [20, 20], [980, 20], [20, 650], [980, 650]].map(([rx, ry]) => { const ex = (rx - dx) / sc, ey = (ry - dy) / sc, w = M[6] * rx + M[7] * ry + M[8]; return Math.hypot((M[0] * rx + M[1] * ry + M[2]) / w - ex, (M[3] * rx + M[4] * ry + M[5]) / w - ey); }); }, [dx, dy, sc]);
+    times[name] = { ms, how: st.how, maxErr: +Math.max(...errs).toFixed(2) };
+    check(`stand-in ${name}: aligned, error <= 3 px at the centre and the corners`, st.how !== 'fail' && st.how !== 'aspect' && errs.every((e) => e <= 3), { st, errs });
+    if (how) check(`stand-in ${name}: method is ${how}`, st.how === how, st);
+    else check(`stand-in ${name}: aligned by ORB or the fallback`, st.how === 'orb' || st.how === 'ecc', st);
+    check(`stand-in ${name}: status text names the method`, st.how === 'ecc' ? st.st === '위치를 맞췄어요 (전체 비교)' : /^위치를 맞췄어요 \(특징점 \d+개\)$/.test(st.st), st);
+    check(`stand-in ${name}: aligned in < 1.5 s`, ms < 1500, ms);
+  }
+  console.log('stand-in times', JSON.stringify(times));
+  // e) an unrelated picture (the built-in scene) must be rejected, not forced into place
+  const scene = Buffer.from(await page.evaluate(() => { sample(); return S.src.toDataURL('image/png').split(',')[1]; }), 'base64');
+  await loadSample(page); await page.waitForFunction(() => !!S.kit && !KIT.job, null, { timeout: 30000 });
+  await upload(page, scene, 'scene.png'); await settled(page);
+  const un = await state(page), um = await page.evaluate(() => gdMatrix());
+  check('stand-in e: unrelated picture -> "자동으로 못 맞췄어요", aspect fit kept', /^자동으로 못 맞췄어요/.test(un.st) && un.how === 'fail' && un.T.tx === 0 && Math.abs(um[1]) < 1e-9 && Math.abs(um[0] - Math.max(1000 / 1200, 672 / 800)) < 1e-6, { un, um });
 
   check('no page errors', errors.length === 0, errors);
   console.log(JSON.stringify(res, null, 1));
