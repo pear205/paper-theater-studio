@@ -13,7 +13,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const ctx = await browser.newContext({ viewport: { width: 1360, height: 900 } });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
-  await page.goto(url); await ready(page);
+  await page.goto(url); await ready(page); await page.evaluate(() => { document.getElementById('sizeCard').open = true; }); // folded card: open it so its inputs can take focus
   const st = () => page.evaluate(() => ({ z: Z.z, tx: Z.tx, ty: Z.ty, css: view.style.transform, pct: document.getElementById('zPct').textContent, n: S.undo.length, zm: document.getElementById('viewBox').classList.contains('zm') }));
   const vr = () => page.evaluate(() => { const r = document.getElementById('viewBox').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
   const imgAt = (cx, cy) => page.evaluate(([x, y]) => pt({ clientX: x, clientY: y }), [cx, cy]);

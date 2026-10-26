@@ -11,6 +11,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(url);
   await page.waitForFunction(() => { try { return !!S.cv && PT.armed; } catch (e) { return false; } }, null, { timeout: 90000 });
+  await page.evaluate(() => { document.getElementById('saveCard').open = true; }); // 작업 저장 card starts collapsed; its buttons are only reachable when open
 
   // phone: F3 card buttons and F4 button can be scrolled above the bottom bar
   for (const id of ['ptSave', 'ptLoad', 'depthSplit', 'addLayer']) {

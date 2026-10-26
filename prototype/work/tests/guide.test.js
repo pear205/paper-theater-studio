@@ -16,6 +16,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.goto(url);
     await page.waitForFunction(() => { try { return !!S.cv && !!S.W && typeof PT === 'object'; } catch (e) { return false; } }, null, { timeout: 90000 });
     await sleep(600);
+    await page.evaluate(() => document.querySelectorAll('details.fold').forEach((d) => { d.open = true; })); // the folding cards start collapsed; tests of their contents open them first
     return page;
   };
   const loadSample = (page) => page.evaluate(async () => {
